@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spir"
+version = "0.1.0"
+description = "Standardized IR and converters for structure prediction inputs (AF3, AF3 Server, Boltz, Chai, Protenix)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Bryan Briney" }]
+dependencies = [
+  "pydantic>=2.5,<3",
+  "PyYAML>=6.0.1,<7",
+  "click>=8.1.7,<9",
+]
+
+[project.urls]
+Homepage = "https://github.com/bryanbriney/spir"
+
+[project.scripts]
+spir = "spir.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["spir*"]
+exclude = []
+
+
