@@ -1,102 +1,294 @@
-Below is a description of how each model expects glycans to be **specified in inputs**, and contains two examples of AlphaFold‑Server strings converted into the proper format for each model:
+# Glycan formats by model (AlphaFold3 Server, AlphaFold3, Chai-1, Boltz-2, Protenix)
 
-* **AlphaFold 3 (local model; not the web server)**
-* **Boltz‑2**
-* **Chai‑1**
-* **Protenix**
+This document summarizes how each model expects **glycans** to be represented in its input format, since glycan handling is one of the biggest sources of friction when translating between formats.
 
-> **Important note on link chemistry.**
-> AF3 **Server** accepts a parenthesis string like `NAG(NAG(MAN(MAN(MAN))))` and infers both **topology** and **glycosidic link positions** automatically. All four models below **do not** infer link positions from that bare string. You must express the bonds explicitly (either as atom pairs or via a glycan grammar that includes the numeric linkage, e.g., `4‑1`, `6‑1`). Where a bond is needed, the convention is: **parent O[n] ↔ child C1** (so a “4‑1” linkage means *O4 of the parent sugar bonded to C1 of the child*). This is how AF3 (local) and Chai‑1 document bond semantics, and it’s also how to wire ligands in Boltz‑2 and Protenix. ([GitHub][1])
+Where relevant, examples below reuse the Man3 / Man6 strings shown in `AF3-server_glycan-formatting.md`.
+
+## Quick comparison (what you need to model in an IR)
+
+| Model | Where glycans are represented | “Glycan object” representation | Explicit glycosidic linkage atoms/positions? | Protein↔glycan attachment |
+|---|---|---|---|---|
+| **AlphaFold3 Server** | `proteinChain.glycans[]` | Compact **tree string** using CCD residue codes (e.g. `NAG(NAG(MAN...))`) | **No** (Server chooses bond atoms heuristically) | `proteinChain.glycans[].position` (1-based residue index; attachment chemistry not user-specifiable) |
+| **AlphaFold3 (non-Server)** | `sequences[]` + `bondedAtomPairs[]` | **Multi-CCD ligand** (`ccdCodes: [...]`) + explicit bond list | **Yes** (`bondedAtomPairs`) | Explicit bond in `bondedAtomPairs` between protein atom and glycan atom |
+| **Chai-1** | FASTA glycan record + restraints CSV | CCD codes + **inline linkage positions** (e.g. `NAG(4-1 NAG)`) | **Yes** (e.g. `4-1` means O4→C1) | `connection_type=covalent` line in restraints CSV |
+| **Boltz-2** | YAML `sequences[]` + `constraints[]` | No special glycan type; treat sugars as ligands (CCD or SMILES) | **Yes** (via `constraints: - bond:`) | Explicit `bond` constraint between protein atom and ligand atom |
+| **Protenix** | `sequences[]` + `covalent_bonds[]` | No `glycans` field; use ligands (CCD/SMILES/FILE). Multi-CCD ligands supported via `CCD_...` concatenation | **Yes** (`covalent_bonds`) | Explicit bond(s) in `covalent_bonds` |
+
+## Suggested intermediate representation (IR) fields for glycan translation
+
+To translate across all five targets, your IR generally needs to capture a **graph**:
+
+- **Nodes**: monosaccharide (or “chemical component”) instances
+  - `node_id` (stable ID within glycan)
+  - `ccd_code` (e.g. `NAG`, `MAN`, `BMA`, `FUC`, ...)
+- **Edges**: covalent linkages between nodes
+  - `parent_node_id`, `child_node_id`
+  - `parent_atom` (e.g. `O4`, `O6`, `O3`) and `child_atom` (commonly `C1`) when required by the target format
+  - If linkage atoms are **unknown/unspecified** (e.g. AlphaFold3 Server), store this explicitly and allow the target to choose defaults.
+- **Attachment(s) to polymer(s)**:
+  - `protein_entity_id` / `chain_id` / `entity_index` (depending on model)
+  - `protein_residue_index` (1-based in every format shown here)
+  - `protein_atom_name` (e.g. `ND2`, `OG`, `OG1`, or whatever the target needs)
+  - `glycan_root_node_id` and `glycan_root_atom_name` (often `C1`)
+
+The remainder of this document explains how each model encodes (parts of) this information.
 
 ---
 
-## How to read the two examples
+## AlphaFold3 Server (`dialect: alphafoldserver`)
 
-* **Example A (linear):** `NAG(NAG(MAN(MAN(MAN))))`
-  *One chain of five monosaccharides. For a concrete illustration of formatting, I’ve used canonical N‑glycan‑core linkages:*
-  **NAG(4‑1)NAG(4‑1)MAN(2‑1)MAN(2‑1)MAN** → bonds at **O4→C1** for NAG→NAG and **O2→C1** for MAN→MAN.
+### Where glycans are specified (Server JSON)
 
-* **Example B (branched):** `NAG(NAG(MAN(MAN(MAN)(MAN(MAN)(MAN)))))`
-  *This is the Man3 core (two GlcNAc + a branched mannose arm). I’ve used the standard N‑glycan branching:* the middle MAN has branches **3‑1** and **6‑1** to two MAN residues, and each branch has a terminal **2‑1** MAN. In atom terms: from the branching MAN, **O3→C1** and **O6→C1** start the two arms; each arm extends by **O2→C1** to its terminal mannose.*
+Within each `proteinChain` entity, glycans are declared as an optional list:
 
-If you need a different linkage pattern, just change the O[n] on the **parent** side (the **child** is always **C1**).
+- `proteinChain.glycans[]` entries contain:
+  - `residues` (**string**): glycan encoded as a compact tree string (see below)
+  - `position` (**int**, 1-based): residue index in the protein sequence the glycan is attached to
 
----
+### Glycan “residues” string format
 
-## 1) AlphaFold 3 (local model; not the server)
+AlphaFold3 Server uses a compact syntax that describes a **rooted tree** of monosaccharide residues:
 
-**What the model expects.** You pass a JSON with entities (proteins, ligands, etc.) and an optional `bondedAtomPairs` list. Each atom is addressed as `[entity_id, residue_index (1‑based inside that ligand), atom_name]`. AF3 (local) explicitly shows a glycan bond within a multi‑CCD ligand as `["J", 1, "O6"]` ↔ `["J", 2, "C1"]`. Glycans are defined as ligands with **multiple CCD codes** plus explicit bonds (including bonds to the protein if glycosylated). ([GitHub][1])
+- **Residue identifiers** are **3-letter PDB CCD codes** (Chemical Components Dictionary).
+  - Stereoisomers use different CCD codes (e.g. mannose can be `MAN` vs `BMA`).
+- **Tree structure** is encoded with parentheses:
+  - `NAG` is a single residue.
+  - `NAG(BMA)` means “NAG has one child BMA”.
+  - `NAG(FUC)(NAG)` means “NAG has two children: FUC and NAG”.
+- **Branching limits**:
+  - Each residue can have **0–2 children**.
+  - Up to **8 total glycan residues** are supported.
+- **Allowed root residues depend on the protein residue type**:
+  - Attached to **N (Asn)**: `BGC`, `BMA`, `GLC`, `MAN`, `NAG`
+  - Attached to **S (Ser)** / **T (Thr)**: `BGC`, `BMA`, `FUC`, `GLC`, `MAN`, `NAG`
+- **No explicit linkage atoms/positions**:
+  - You cannot specify which atoms form the glycosidic bond.
+  - The Server chooses bond atoms heuristically based on frequent occurrences in the PDB.
+  - The Server expects glycan-glycan connections to be chemically valid (e.g. `GLC(NAG)(MAN)` is cited as invalid).
 
-### Example A (linear) — AF3 JSON fragment
+### Examples (glycan strings)
+
+These are directly usable in `proteinChain.glycans[].residues`:
+
+- **Single residue**: `NAG`
+- **One child**: `NAG(BMA)`
+- **Linear chain**: `NAG(BMA(BGC))`
+- **Two children**: `NAG(FUC)(NAG)`
+- **Man3 (linear example)**: `NAG(NAG(MAN(MAN(MAN))))`
+- **Man6 (branched example)**: `NAG(NAG(MAN(MAN(MAN)(MAN(MAN)(MAN))))))`
+
+### Example JSON snippet (protein glycosylation)
 
 ```json
 {
-  "dialect": "alphafold3",
-  "version": 4,
-  "modelSeeds": [1],
-  "name": "Linear glycan example",
+  "name": "Example AF3 Server glycosylation",
+  "modelSeeds": [],
   "sequences": [
-    { "ligand": { "id": "G", "ccdCodes": ["NAG", "NAG", "MAN", "MAN", "MAN"] } }
+    {
+      "proteinChain": {
+        "sequence": "PREACHINGS",
+        "count": 1,
+        "glycans": [
+          {
+            "residues": "NAG(NAG(MAN(MAN(MAN))))",
+            "position": 8
+          }
+        ]
+      }
+    }
   ],
-  "bondedAtomPairs": [
-    [["G", 1, "O4"], ["G", 2, "C1"]],  // NAG(4-1)NAG
-    [["G", 2, "O4"], ["G", 3, "C1"]],  // NAG(4-1)MAN
-    [["G", 3, "O2"], ["G", 4, "C1"]],  // MAN(2-1)MAN
-    [["G", 4, "O2"], ["G", 5, "C1"]]   // MAN(2-1)MAN
-  ]
+  "dialect": "alphafoldserver",
+  "version": 1
 }
 ```
-
-### Example B (branched) — AF3 JSON fragment
-
-```json
-{
-  "dialect": "alphafold3",
-  "version": 4,
-  "modelSeeds": [1],
-  "name": "Branched glycan example",
-  "sequences": [
-    { "ligand": { "id": "G", "ccdCodes": ["NAG","NAG","MAN","MAN","MAN","MAN","MAN","MAN"] } }
-  ],
-  "bondedAtomPairs": [
-    [["G", 1, "O4"], ["G", 2, "C1"]],  // NAG(4-1)NAG
-    [["G", 2, "O4"], ["G", 3, "C1"]],  // NAG(4-1)MAN  (root MAN at index 3)
-
-    [["G", 3, "O2"], ["G", 4, "C1"]],  // trunk: MAN(2-1)MAN
-    [["G", 4, "O2"], ["G", 5, "C1"]],  // trunk: MAN(2-1)MAN
-
-    [["G", 3, "O3"], ["G", 6, "C1"]],  // branch 1 from MAN@3: (3-1)
-    [["G", 6, "O2"], ["G", 7, "C1"]],  // extend branch 1: (2-1)
-
-    [["G", 3, "O6"], ["G", 8, "C1"]]   // branch 2 from MAN@3: (6-1)
-  ]
-}
-```
-
-*Why this is “correct” for AF3 (local).* AF3’s official `input.md` specifies multi‑CCD ligands and `bondedAtomPairs` with **O[n]** ↔ **C1** atom names and 1‑based residue indices inside the ligand; it even highlights glycan bonds using that addressing scheme. ([GitHub][1])
 
 ---
 
-## 2) Boltz‑2
+## AlphaFold3 (non-Server) (`dialect: alphafold3`, `version: 4`)
 
-**What the model expects.** Boltz‑2 takes a YAML “schema” and lets you define **CCD ligands** and **bond constraints**. Bonds are specified as:
+### Key idea: “multi-CCD ligand + explicit bonds”
 
-```yaml
-constraints:
-  - bond:
-      atom1: [CHAIN_ID, RES_IDX, ATOM_NAME]
-      atom2: [CHAIN_ID, RES_IDX, ATOM_NAME]
+AlphaFold3 (non-Server) does not have an `alphafoldserver`-style glycan string. Instead:
+
+- A glycan is represented as a **ligand entity** whose `ccdCodes` list contains **one CCD code per glycan component**.
+- Covalent connectivity (protein↔glycan and glycan↔glycan) is expressed with **explicit bonds** in `bondedAtomPairs`.
+
+### Ligand definition (multi-CCD)
+
+- `ligand.id` is a single uppercase letter (or list of letters for multiple copies).
+- `ligand.ccdCodes` is a list of CCD codes. If the list has length > 1, you typically also provide `bondedAtomPairs` to connect components.
+
+### Bond representation (`bondedAtomPairs`)
+
+Each bonded atom is addressed by three fields:
+
+- **Entity ID** (`str`): the `id` of the entity (e.g. `"A"` for a protein chain, `"G"` for a ligand).
+- **Residue index within the entity** (`int`, 1-based):
+  - For proteins/RNA/DNA: the residue index in the sequence.
+  - For multi-CCD ligands: the **component index** within `ccdCodes` (1..N).
+  - For single-residue ligands: always `1`.
+- **Atom name** (`str`): the CCD atom name (e.g. `C1`, `O4`, `O6`, `ND2`, ...).
+
+Important constraints called out in the AF3 format description:
+
+- Bonds are covalent; other bond types are not supported.
+- SMILES ligands do **not** support `bondedAtomPairs` (no stable atom naming); use CCD codes or a user-provided CCD if you need bonded connectivity.
+
+### Example: Man3 as a multi-CCD ligand
+
+This example attaches the glycan to residue 8 of the protein chain (sequence `"PREACHINGS"` has `N` at position 8). Bond atoms shown are illustrative and should be validated against the CCD atom naming for the specific components you use.
+
+```json
+{
+  "name": "Example AF3 Man3 (multi-CCD ligand)",
+  "modelSeeds": [1],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "PREACHINGS"
+      }
+    },
+    {
+      "ligand": {
+        "id": "G",
+        "ccdCodes": ["NAG", "NAG", "MAN", "MAN", "MAN"],
+        "description": "Man3-like linear chain: NAG-NAG-MAN-MAN-MAN"
+      }
+    }
+  ],
+  "bondedAtomPairs": [
+    [["A", 8, "ND2"], ["G", 1, "C1"]],
+    [["G", 1, "O4"], ["G", 2, "C1"]],
+    [["G", 2, "O4"], ["G", 3, "C1"]],
+    [["G", 3, "O6"], ["G", 4, "C1"]],
+    [["G", 4, "O6"], ["G", 5, "C1"]]
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}
 ```
 
-This is supported for CCD ligands and canonical residues; atom names come from the CCD. (SMILES ligands cannot be used for covalent bonds in Boltz.) ([GitHub][2])
+### Example: Man6 (branched) as a multi-CCD ligand
 
-> **Tip:** For a glycan made of several monosaccharides, define each sugar as a **ligand with `ccd: NAG/MAN/BMA`** (copy count = 1) and wire them with `constraints: bond:` pairs. (You can also group multiple CCD residues under one Boltz ligand entity if you’ve customized the loader, but the documented path is one CCD per ligand with bonds between them.)
+This matches the **topology** of the AlphaFold3 Server Man6 example string `NAG(NAG(MAN(MAN(MAN)(MAN(MAN)(MAN))))))` (2 NAG + 6 MAN = 8 components), but uses explicit bonds to encode branching.
 
-### Example A (linear) — Boltz‑2 YAML fragment
+```json
+{
+  "name": "Example AF3 Man6 (multi-CCD ligand, branched)",
+  "modelSeeds": [1],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "PREACHINGS"
+      }
+    },
+    {
+      "ligand": {
+        "id": "G",
+        "ccdCodes": ["NAG", "NAG", "MAN", "MAN", "MAN", "MAN", "MAN", "MAN"],
+        "description": "Man6-like branched tree (see bondedAtomPairs)"
+      }
+    }
+  ],
+  "bondedAtomPairs": [
+    [["A", 8, "ND2"], ["G", 1, "C1"]],
+
+    [["G", 1, "O4"], ["G", 2, "C1"]],
+    [["G", 2, "O4"], ["G", 3, "C1"]],
+    [["G", 3, "O6"], ["G", 4, "C1"]],
+
+    [["G", 4, "O3"], ["G", 5, "C1"]],
+    [["G", 4, "O6"], ["G", 6, "C1"]],
+
+    [["G", 6, "O3"], ["G", 7, "C1"]],
+    [["G", 6, "O6"], ["G", 8, "C1"]]
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}
+```
+
+---
+
+## Chai-1
+
+### Where glycans are specified (FASTA + restraints)
+
+Chai-1 represents glycans in two places:
+
+1. **FASTA input** includes a glycan record, e.g.:
+   - `>glycan|example-name`
+   - followed by a single-line glycan string (see below)
+2. **Restraints CSV** specifies covalent attachments (including protein↔glycan) using a row with `connection_type=covalent`.
+
+### Glycan string format (inline linkage positions)
+
+Chai-1 uses CCD codes and an inline bond syntax:
+
+- Start with the **root** CCD code (e.g. `NAG`).
+- Attach a child by writing:
+  - `(PARENT_POS-CHILD_POS CHILD_CCD)`
+  - Example: `NAG(4-1 NAG)` means bond **O4** (parent) → **C1** (child).
+- Build outward left-to-right; parentheses always attach to the residue immediately preceding them.
+- Branch by adding multiple parenthetical attachments:
+  - `BMA(3-1 MAN)(6-1 MAN)` attaches two children to `BMA`.
+
+### Protein↔glycan attachment (restraints CSV)
+
+In a restraints `.csv`, add a covalent bond row. In the example below:
+
+- `chainA=A` is the first FASTA entry (protein)
+- `chainB=B` is the second FASTA entry (glycan)
+- `res_idxA` includes both a residue+index and an atom name (e.g. `N8@ND2`)
+- `res_idxB` can refer to an atom in the root glycan as `@C1`
+
+```text
+chainA|res_idxA|chainB|res_idxB|connection_type|confidence|min_distance_angstrom|max_distance_angstrom|comment|restraint_id
+A|N8@ND2|B|@C1|covalent|1.0|0.0|0.0|protein-glycan|bond1
+```
+
+### Examples (Chai-1 glycan FASTA strings)
+
+- **Single residue**:
+  - `NAG`
+- **Two residues**:
+  - `NAG(4-1 NAG)`
+- **Man3 (linear example, topology matching the AF3 Server Man3 string)**:
+  - `NAG(4-1 NAG(4-1 MAN(6-1 MAN(6-1 MAN))))`
+- **Man6 (branched example, topology matching the AF3 Server Man6 string)**:
+  - `NAG(4-1 NAG(4-1 MAN(6-1 MAN(3-1 MAN)(6-1 MAN(3-1 MAN)(6-1 MAN)))))`
+
+Chai-1 also notes that sugar rings include hydroxyl groups that leave when bonds form; it attempts to drop glycan leaving atoms automatically for glycan rings.
+
+---
+
+## Boltz-2
+
+### Key idea: “no glycan type; use ligands + bond constraints”
+
+Boltz-2’s input schema has:
+
+- `sequences`: proteins/DNA/RNA and `ligand` entries
+- `constraints`: optional covalent `bond` constraints between two atoms
+
+There is no special “glycan string” field. A glycan can be represented by:
+
+- **Option A (single ligand)**: one `ligand` with a full-glycan **SMILES** (most compact, but SMILES authoring is non-trivial).
+- **Option B (recommended for translation)**: one `ligand` per monosaccharide ring (CCD code), plus `constraints: - bond:` entries that connect rings and attach the root ring to the protein.
+
+Boltz-2 states that `bond` constraints are currently supported only for **CCD ligands** and **canonical residues**. Atom names should be verified against the component’s CCD mmCIF.
+
+### Example: Man3 (linear) as multiple CCD ligands + bonds
 
 ```yaml
 version: 1
 sequences:
+  - protein:
+      id: A
+      sequence: PREACHINGS
+      msa: empty
   - ligand:
       id: G1
       ccd: NAG
@@ -112,185 +304,156 @@ sequences:
   - ligand:
       id: G5
       ccd: MAN
-
 constraints:
-  - bond: {atom1: [G1, 1, O4], atom2: [G2, 1, C1]}  # NAG(4-1)NAG
-  - bond: {atom1: [G2, 1, O4], atom2: [G3, 1, C1]}  # NAG(4-1)MAN
-  - bond: {atom1: [G3, 1, O2], atom2: [G4, 1, C1]}  # MAN(2-1)MAN
-  - bond: {atom1: [G4, 1, O2], atom2: [G5, 1, C1]}  # MAN(2-1)MAN
+  - bond:
+      atom1: [A, 8, ND2]
+      atom2: [G1, 1, C1]
+  - bond:
+      atom1: [G1, 1, O4]
+      atom2: [G2, 1, C1]
+  - bond:
+      atom1: [G2, 1, O4]
+      atom2: [G3, 1, C1]
+  - bond:
+      atom1: [G3, 1, O6]
+      atom2: [G4, 1, C1]
+  - bond:
+      atom1: [G4, 1, O6]
+      atom2: [G5, 1, C1]
 ```
 
-### Example B (branched) — Boltz‑2 YAML fragment
+### Example: Man6 (branched) as multiple CCD ligands + bonds
 
 ```yaml
 version: 1
 sequences:
-  - ligand: {id: G1, ccd: NAG}
-  - ligand: {id: G2, ccd: NAG}
-  - ligand: {id: G3, ccd: MAN}  # branching MAN
-  - ligand: {id: G4, ccd: MAN}  # trunk 1
-  - ligand: {id: G5, ccd: MAN}  # trunk 2
-  - ligand: {id: B1, ccd: MAN}  # branch 1 base
-  - ligand: {id: B2, ccd: MAN}  # branch 1 tip
-  - ligand: {id: C1, ccd: MAN}  # branch 2 base
-
+  - protein:
+      id: A
+      sequence: PREACHINGS
+      msa: empty
+  - ligand: { id: G1, ccd: NAG }
+  - ligand: { id: G2, ccd: NAG }
+  - ligand: { id: G3, ccd: MAN }
+  - ligand: { id: G4, ccd: MAN }
+  - ligand: { id: G5, ccd: MAN }
+  - ligand: { id: G6, ccd: MAN }
+  - ligand: { id: G7, ccd: MAN }
+  - ligand: { id: G8, ccd: MAN }
 constraints:
-  - bond: {atom1: [G1, 1, O4], atom2: [G2, 1, C1]}  # NAG->NAG (4-1)
-  - bond: {atom1: [G2, 1, O4], atom2: [G3, 1, C1]}  # NAG->MAN (4-1)
+  - bond: { atom1: [A, 8, ND2], atom2: [G1, 1, C1] }
 
-  - bond: {atom1: [G3, 1, O2], atom2: [G4, 1, C1]}  # trunk: (2-1)
-  - bond: {atom1: [G4, 1, O2], atom2: [G5, 1, C1]}  # trunk: (2-1)
+  - bond: { atom1: [G1, 1, O4], atom2: [G2, 1, C1] }
+  - bond: { atom1: [G2, 1, O4], atom2: [G3, 1, C1] }
+  - bond: { atom1: [G3, 1, O6], atom2: [G4, 1, C1] }
 
-  - bond: {atom1: [G3, 1, O3], atom2: [B1, 1, C1]}  # branch 1 from MAN@G3: (3-1)
-  - bond: {atom1: [B1, 1, O2], atom2: [B2, 1, C1]}  # extend branch 1: (2-1)
+  - bond: { atom1: [G4, 1, O3], atom2: [G5, 1, C1] }
+  - bond: { atom1: [G4, 1, O6], atom2: [G6, 1, C1] }
 
-  - bond: {atom1: [G3, 1, O6], atom2: [C1, 1, C1]}  # branch 2 from MAN@G3: (6-1)
+  - bond: { atom1: [G6, 1, O3], atom2: [G7, 1, C1] }
+  - bond: { atom1: [G6, 1, O6], atom2: [G8, 1, C1] }
 ```
-
-*Why this is “correct” for Boltz‑2.* The repo’s `prediction.md` and issues document **bond constraints** in YAML with `atom1/atom2` lists of `[CHAIN, RES_IDX, ATOM_NAME]`, and clarify that covalent bonds are supported for **CCD** ligands (not SMILES). ([GitHub][2])
 
 ---
 
-## 3) Chai‑1
+## Protenix
 
-**What the model expects.** Chai‑1 supports **covalent bonds and glycans** via:
+### Key idea: “no glycans field; use ligands + covalent_bonds”
 
-* a **FASTA line** with a **glycan string that includes numeric bonds** like `NAG(4-1 NAG)`; parentheses denote attachment to the immediately preceding sugar; `4‑1` means O4(parent)–C1(child).
-* a separate **CSV “restraints” file** to connect the **root glycan residue** to a specific protein residue/atom if you’re modeling a glycosylated protein. The examples and docs show this format and explicitly call out the `4‑1` bond semantics. ([GitHub][3])
+Protenix explicitly states:
 
-> **Only the glycan strings are shown below** (the restraint row that bonds the root sugar to the protein is separate). If you’re folding the glycan alone, you can omit the restraint.
+- There is **no supported `glycans` field**.
+- Glycans can be represented as:
+  - multiple ligands with defined bonding, or
+  - a single ligand described by a full-molecule SMILES / structure file
+- A ligand can be specified as a CCD code prefixed with `CCD_`.
+  - For glycans, Protenix supports a **multi-CCD ligand string** that concatenates multiple CCD codes, e.g. `CCD_NAG_BMA_BGC`.
 
-### Example A (linear) — Chai‑1 glycan FASTA line
+### Covalent bonds (`covalent_bonds`)
 
-```
->glycan|linear
-NAG(4-1 NAG(4-1 MAN(2-1 MAN(2-1 MAN))))
-```
+`covalent_bonds` entries identify atoms by:
 
-### Example B (branched) — Chai‑1 glycan FASTA line
+- `entity1` / `entity2`: 1-based entity index in the `sequences` list
+- `copy1` / `copy2`: 1-based copy index (optional)
+- `position1` / `position2`:
+  - For polymers: residue index in the sequence (1-based)
+  - For multi-CCD ligands: **component index** within the concatenated CCD list (1-based)
+  - For single-CCD / SMILES / FILE ligands: always `1`
+- `atom1` / `atom2`:
+  - For polymers or CCD-defined ligands: **CCD atom names**
+  - For SMILES/FILE ligands: atoms can be specified by **atom index** (0-based), per the Protenix doc
 
-```
->glycan|branched
-NAG(4-1 NAG(4-1 MAN(2-1 MAN(2-1 MAN))(3-1 MAN(2-1 MAN))(6-1 MAN)))
-```
-
-This follows the grammar documented by Chai‑1 (explicit `n‑1` bonds; building “outward” left‑to‑right), and mirrors the corrected branched Man3 example given in their issue tracker. ([GitHub][3])
-
----
-
-## 4) Protenix
-
-**What the model expects.** Protenix uses a JSON **similar to AlphaFold‑Server** but adds:
-
-* Support for multi‑CCD ligands by concatenating CCDs (e.g., `"CCD_NAG_BMA_BGC"`), and
-* Explicit `covalent_bonds` specifying the two atoms to connect.
-  For bonds, each side is addressed by `[entity_number, copy_index, position, atom_name]`, where **`position` is the serial index of the CCD within that ligand** (or residue index for polymers). You can also split sugars into separate ligands and connect them. ([Hugging Face][4])
-
-### Example A (linear) — Protenix JSON fragment
+### Example: Man3 as a multi-CCD ligand + bonds
 
 ```json
-{
-  "name": "Linear glycan example",
-  "sequences": [
-    { "ligand": { "ligand": "CCD_NAG_NAG_MAN_MAN_MAN", "count": 1 } }
-  ],
-  "covalent_bonds": [
-    { "entity1": "1", "position1": "1", "atom1": "O4", "entity2": "1", "position2": "2", "atom2": "C1" },  // NAG(4-1)NAG
-    { "entity1": "1", "position1": "2", "atom1": "O4", "entity2": "1", "position2": "3", "atom2": "C1" },  // NAG(4-1)MAN
-    { "entity1": "1", "position1": "3", "atom1": "O2", "entity2": "1", "position2": "4", "atom2": "C1" },  // MAN(2-1)MAN
-    { "entity1": "1", "position1": "4", "atom1": "O2", "entity2": "1", "position2": "5", "atom2": "C1" }   // MAN(2-1)MAN
-  ]
-}
+[
+  {
+    "name": "Example Protenix Man3",
+    "sequences": [
+      {
+        "proteinChain": {
+          "sequence": "PREACHINGS",
+          "count": 1
+        }
+      },
+      {
+        "ligand": {
+          "ligand": "CCD_NAG_NAG_MAN_MAN_MAN",
+          "count": 1
+        }
+      }
+    ],
+    "covalent_bonds": [
+      { "entity1": "1", "copy1": 1, "position1": "8", "atom1": "ND2", "entity2": "2", "copy2": 1, "position2": "1", "atom2": "C1" },
+      { "entity1": "2", "copy1": 1, "position1": "1", "atom1": "O4", "entity2": "2", "copy2": 1, "position2": "2", "atom2": "C1" },
+      { "entity1": "2", "copy1": 1, "position1": "2", "atom1": "O4", "entity2": "2", "copy2": 1, "position2": "3", "atom2": "C1" },
+      { "entity1": "2", "copy1": 1, "position1": "3", "atom1": "O6", "entity2": "2", "copy2": 1, "position2": "4", "atom2": "C1" },
+      { "entity1": "2", "copy1": 1, "position1": "4", "atom1": "O6", "entity2": "2", "copy2": 1, "position2": "5", "atom2": "C1" }
+    ]
+  }
+]
 ```
 
-### Example B (branched) — Protenix JSON fragment
-
-Two ways are supported. I show (i) **one multi‑CCD ligand** with positions, or (ii) **split branches as separate ligands**.
-
-**(i) One multi‑CCD ligand**
+### Example: Man6 (branched) as a multi-CCD ligand + bonds
 
 ```json
-{
-  "name": "Branched glycan example (single ligand)",
-  "sequences": [
-    { "ligand": { "ligand": "CCD_NAG_NAG_MAN_MAN_MAN_MAN_MAN_MAN", "count": 1 } }
-  ],
-  "covalent_bonds": [
-    { "entity1": "1", "position1": "1", "atom1": "O4", "entity2": "1", "position2": "2", "atom2": "C1" },  // NAG->NAG
-    { "entity1": "1", "position1": "2", "atom1": "O4", "entity2": "1", "position2": "3", "atom2": "C1" },  // NAG->MAN (root @pos3)
+[
+  {
+    "name": "Example Protenix Man6 (branched)",
+    "sequences": [
+      {
+        "proteinChain": {
+          "sequence": "PREACHINGS",
+          "count": 1
+        }
+      },
+      {
+        "ligand": {
+          "ligand": "CCD_NAG_NAG_MAN_MAN_MAN_MAN_MAN_MAN",
+          "count": 1
+        }
+      }
+    ],
+    "covalent_bonds": [
+      { "entity1": "1", "copy1": 1, "position1": "8", "atom1": "ND2", "entity2": "2", "copy2": 1, "position2": "1", "atom2": "C1" },
 
-    { "entity1": "1", "position1": "3", "atom1": "O2", "entity2": "1", "position2": "4", "atom2": "C1" },  // trunk: (2-1)
-    { "entity1": "1", "position1": "4", "atom1": "O2", "entity2": "1", "position2": "5", "atom2": "C1" },  // trunk: (2-1)
+      { "entity1": "2", "copy1": 1, "position1": "1", "atom1": "O4", "entity2": "2", "copy2": 1, "position2": "2", "atom2": "C1" },
+      { "entity1": "2", "copy1": 1, "position1": "2", "atom1": "O4", "entity2": "2", "copy2": 1, "position2": "3", "atom2": "C1" },
+      { "entity1": "2", "copy1": 1, "position1": "3", "atom1": "O6", "entity2": "2", "copy2": 1, "position2": "4", "atom2": "C1" },
 
-    { "entity1": "1", "position1": "3", "atom1": "O3", "entity2": "1", "position2": "6", "atom2": "C1" },  // branch 1 from MAN@3: (3-1)
-    { "entity1": "1", "position1": "6", "atom1": "O2", "entity2": "1", "position2": "7", "atom2": "C1" },  // extend branch 1: (2-1)
+      { "entity1": "2", "copy1": 1, "position1": "4", "atom1": "O3", "entity2": "2", "copy2": 1, "position2": "5", "atom2": "C1" },
+      { "entity1": "2", "copy1": 1, "position1": "4", "atom1": "O6", "entity2": "2", "copy2": 1, "position2": "6", "atom2": "C1" },
 
-    { "entity1": "1", "position1": "3", "atom1": "O6", "entity2": "1", "position2": "8", "atom2": "C1" }   // branch 2 from MAN@3: (6-1)
-  ]
-}
+      { "entity1": "2", "copy1": 1, "position1": "6", "atom1": "O3", "entity2": "2", "copy2": 1, "position2": "7", "atom2": "C1" },
+      { "entity1": "2", "copy1": 1, "position1": "6", "atom1": "O6", "entity2": "2", "copy2": 1, "position2": "8", "atom2": "C1" }
+    ]
+  }
+]
 ```
 
-**(ii) Split into multiple ligands** (easier to read/edit)
-
-```json
-{
-  "name": "Branched glycan example (split ligands)",
-  "sequences": [
-    { "ligand": { "ligand": "CCD_NAG", "count": 1 } },  // entity 1, pos 1
-    { "ligand": { "ligand": "CCD_NAG", "count": 1 } },  // entity 2, pos 1
-    { "ligand": { "ligand": "CCD_MAN_MAN_MAN", "count": 1 } },        // entity 3, pos 1..3 (root/trunk)
-    { "ligand": { "ligand": "CCD_MAN_MAN", "count": 1 } },            // entity 4, pos 1..2 (branch 1)
-    { "ligand": { "ligand": "CCD_MAN", "count": 1 } }                 // entity 5, pos 1 (branch 2 leaf)
-  ],
-  "covalent_bonds": [
-    { "entity1": "1", "position1": "1", "atom1": "O4", "entity2": "2", "position2": "1", "atom2": "C1" },  // NAG->NAG
-    { "entity1": "2", "position1": "1", "atom1": "O4", "entity2": "3", "position2": "1", "atom2": "C1" },  // NAG->MAN (root)
-
-    { "entity1": "3", "position1": "1", "atom1": "O2", "entity2": "3", "position2": "2", "atom2": "C1" },  // trunk (2-1)
-    { "entity1": "3", "position1": "2", "atom1": "O2", "entity2": "3", "position2": "3", "atom2": "C1" },  // trunk (2-1)
-
-    { "entity1": "3", "position1": "1", "atom1": "O3", "entity2": "4", "position2": "1", "atom2": "C1" },  // branch 1 start (3-1)
-    { "entity1": "4", "position1": "1", "atom1": "O2", "entity2": "4", "position2": "2", "atom2": "C1" },  // branch 1 extend (2-1)
-
-    { "entity1": "3", "position1": "1", "atom1": "O6", "entity2": "5", "position2": "1", "atom2": "C1" }   // branch 2 start (6-1)
-  ]
-}
-```
-
-*Why this is “correct” for Protenix.* The official format guide explains multi‑CCD ligands like `"CCD_NAG_BMA_BGC"` and the `covalent_bonds` addressing scheme with `entity`, `position`, and `atom` fields for bonding ligands to ligands or polymers. ([Hugging Face][4])
-
 ---
 
-## Quick atom‑mapping cheat sheet (for NAG, MAN, BMA)
+## Practical notes for formats requiring explicit atoms (AF3 / Chai / Boltz / Protenix)
 
-* **Child side** is always **`C1`**.
-* **Parent side** atom equals **`O2` / `O3` / `O4` / `O6`** for **2‑1 / 3‑1 / 4‑1 / 6‑1** linkages respectively.
-  This is the convention used in AF3 (local) `bondedAtomPairs` examples and Chai‑1’s glycan grammar (`n‑1` means parent **O[n]** ↔ child **C1**). ([GitHub][1])
-
----
-
-## Sources
-
-* **AlphaFold 3 (local)** input format, multi‑CCD ligands and `bondedAtomPairs` (with glycan example inside a ligand). ([GitHub][1])
-* **Boltz (Boltz‑2) docs**: YAML schema and **bond constraints** (`atom1`/`atom2` = `[CHAIN_ID, RES_IDX, ATOM_NAME]`); CCD ligands only for covalent bonds. ([GitHub][2])
-* **Chai‑1 glycans**: FASTA glycan grammar using **`(n‑1`)** bond notation and restraint CSV; branched Man3 example with corrected ordering. ([GitHub][3])
-* **Protenix** JSON: multi‑CCD ligands via `"CCD_..."` concatenation; explicit `covalent_bonds` with `entity`/`position`/`atom` addressing for ligand–ligand or ligand–polymer bonds. ([Hugging Face][4])
-
----
-
-### If you want these wired to a protein site
-
-Add one more **bond** from the **root sugar’s C1** to the **protein atom** (e.g., **Asn ND2** for an N‑linked glycan) using each model’s bond syntax:
-
-* AF3: `["A", <asn_index>, "ND2"]` ↔ `["G", <root_pos>, "C1"]`. ([GitHub][1])
-* Boltz‑2: `atom1: [A, <asn_index>, ND2]`, `atom2: [G1, 1, C1]`. ([GitHub][2])
-* Chai‑1: add one CSV restraint row with `connection_type=covalent` between `A,N<idx>@ND2` and the glycan root `@C1` as shown in their covalent‑bonds example. ([GitHub][5])
-* Protenix: a `covalent_bonds` entry where `entity1` is the protein entity, `atom1="ND2"`, and `entity2` is the glycan ligand at `position` of the root sugar with `atom2="C1"`. ([Hugging Face][4])
-
-If you’d like, I can also generate ready‑to‑run full input files (including a protein and the exact Asn site) for one of your sequences.
-
-[1]: https://raw.githubusercontent.com/google-deepmind/alphafold3/main/docs/input.md "raw.githubusercontent.com"
-[2]: https://raw.githubusercontent.com/jwohlwend/boltz/main/docs/prediction.md?utm_source=chatgpt.com "raw.githubusercontent.com"
-[3]: https://github.com/chaidiscovery/chai-lab/blob/main/examples/covalent_bonds/README.md?utm_source=chatgpt.com "chai-lab/examples/covalent_bonds/README.md at main - GitHub"
-[4]: https://huggingface.co/datasets/Yimingbear/protenix/blob/main/docs/infer_json_format.md "docs/infer_json_format.md · Yimingbear/protenix at main"
-[5]: https://github.com/chaidiscovery/chai-lab/blob/main/examples/restraints/README.md?utm_source=chatgpt.com "chai-lab/examples/restraints/README.md at main - GitHub"
+- **Atom names must match the CCD atom naming** for the component (e.g. `C1`, `O4`, `O3`, `O6` are common for sugars, and `ND2`/`OG`/`OG1` for typical glycosylation sites).
+- If your linkage atoms differ from the examples above, adjust the bonds accordingly.
+- AlphaFold3 Server is the only format here that **does not let you specify** linkage atoms/positions; it will infer them.
