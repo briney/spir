@@ -885,9 +885,9 @@ if __name__ == "__main__":
 Usage:
 
 ```bash
-foldir convert --from alphafoldserver input.json --to alphafold3 output.json
-foldir convert --from alphafold3 input.json --to boltz2 output.yaml
-foldir convert --from chai1 ./case/ --to protenix output.json
+foldir convert --from alphafoldserver input.json --to alphafold3 output
+foldir convert --from alphafold3 input.json --to boltz2 output
+foldir convert --from chai1 ./case/ --to protenix output
 ```
 
 (For Chai you’ll typically accept a directory containing `*.fasta` + `*.csv`.)

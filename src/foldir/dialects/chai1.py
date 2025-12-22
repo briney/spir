@@ -26,8 +26,8 @@ from foldir.ir.models import (
 class Chai1Dialect:
     name = "chai1"
 
-    def parse(self, path: str) -> DocumentIR:
-        fasta_path, restraints_path = _resolve_inputs(path)
+    def parse(self, path: str, restraints_path: Optional[str] = None) -> DocumentIR:
+        fasta_path, restraints_path = _resolve_inputs(path, restraints_path)
         records = read_fasta(fasta_path)
         job, glycans, glycan_by_chain = _parse_fasta(records)
         if restraints_path and os.path.exists(restraints_path):
@@ -45,11 +45,11 @@ class Chai1Dialect:
             job = job.model_copy(update={"glycans": glycans})
         return DocumentIR(jobs=[job])
 
-    def render(self, doc: DocumentIR, out_path: str) -> None:
+    def render(self, doc: DocumentIR, out_prefix: str) -> None:
         if len(doc.jobs) != 1:
-            raise ValueError("Chai-1 expects exactly one job per directory.")
+            raise ValueError("Chai-1 expects exactly one job per output prefix.")
         job = doc.jobs[0]
-        out_dir, fasta_path, restraints_path = _resolve_outputs(out_path)
+        out_dir, fasta_path, constraints_path = _resolve_outputs(out_prefix)
         os.makedirs(out_dir, exist_ok=True)
 
         records, chain_letters = _render_fasta(job)
@@ -69,10 +69,16 @@ class Chai1Dialect:
                 "max_distance_angstrom",
                 "comment",
             ]
-            write_csv(restraints_path, rows, fieldnames)
+            write_csv(constraints_path, rows, fieldnames)
 
 
-def _resolve_inputs(path: str) -> Tuple[str, Optional[str]]:
+def _resolve_inputs(path: str, restraints_path: Optional[str]) -> Tuple[str, Optional[str]]:
+    if restraints_path:
+        if os.path.isdir(path):
+            raise ValueError("Chai input with restraints must be a FASTA path.")
+        if not path.endswith((".fasta", ".fa")):
+            raise ValueError("Chai input with restraints must be a FASTA path.")
+        return path, restraints_path
     if os.path.isdir(path):
         fasta_path = _find_first(path, (".fasta", ".fa"))
         restraints_path = _find_first(path, (".csv", ".restraints"))
@@ -84,16 +90,11 @@ def _resolve_inputs(path: str) -> Tuple[str, Optional[str]]:
     raise ValueError("Chai input must be a directory or FASTA path.")
 
 
-def _resolve_outputs(out_path: str) -> Tuple[str, str, str]:
-    if out_path.endswith((".fasta", ".fa")):
-        out_dir = os.path.dirname(out_path) or "."
-        fasta_path = out_path
-        restraints_path = os.path.join(out_dir, "restraints.csv")
-        return out_dir, fasta_path, restraints_path
-    out_dir = out_path
-    fasta_path = os.path.join(out_dir, "chains.fasta")
-    restraints_path = os.path.join(out_dir, "restraints.csv")
-    return out_dir, fasta_path, restraints_path
+def _resolve_outputs(out_prefix: str) -> Tuple[str, str, str]:
+    out_dir = os.path.dirname(out_prefix) or "."
+    fasta_path = f"{out_prefix}.fasta"
+    constraints_path = f"{out_prefix}.constraints.csv"
+    return out_dir, fasta_path, constraints_path
 
 
 def _find_first(root: str, exts: Tuple[str, ...]) -> Optional[str]:

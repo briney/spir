@@ -24,11 +24,12 @@ def test_af3_server_to_af3(tmp_path):
         }
     ]
     in_path = tmp_path / "input.json"
-    out_path = tmp_path / "output.json"
+    out_prefix = tmp_path / "output"
     in_path.write_text(json.dumps(in_payload), encoding="utf-8")
 
-    convert(str(in_path), "alphafoldserver", str(out_path), "alphafold3", ConvertOptions())
+    convert(str(in_path), "alphafoldserver", str(out_prefix), "alphafold3", ConvertOptions())
 
+    out_path = tmp_path / "output.json"
     out = json.loads(out_path.read_text(encoding="utf-8"))
     assert out["dialect"] == "alphafold3"
     assert out["modelSeeds"], "AF3 output should include modelSeeds"

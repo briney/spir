@@ -6,7 +6,7 @@ Intermediate representation and converters for protein folding model inputs.
 
 ```bash
 pip install -e .
-foldir convert --from alphafoldserver input.json --to alphafold3 output.json
+foldir convert --from alphafoldserver input.json --to alphafold3 output
 ```
 
 ## Layout
