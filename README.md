@@ -31,11 +31,17 @@ pip install -e .
 SPIR provides a CLI for converting between different structure prediction model inputs.
 
 ```bash
-spir convert --from alphafold3server input.json --to alphafold3 output_path
+spir convert --from DIALECT INPUT_FILE --to DIALECT OUTPUT_PREFIX
+```
+
+For example, to convert an AlphaFold3 Server input to an AlphaFold3 (non-Server) output, you can run:
+
+```bash
+spir convert --from alphafold3server path/to/input.json --to alphafold3 path/to/output
 ```
 
 > [!NOTE]
-> The `output_path` should only contain the prefix for the output files (no extension). The correct extension will be added automatically.
+> The `output_prefix` should only contain the prefix for the output files (no extension). The correct extension will be added automatically.
 
 If your input is Chai-1 formatted and includes restraints, you can specify the restraints file with the `--restraints` option:
 
