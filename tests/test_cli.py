@@ -1,6 +1,7 @@
 """Tests for SPIR CLI commands."""
 
 import json
+import re
 
 from typer.testing import CliRunner
 
@@ -9,12 +10,19 @@ from spir.cli import app
 runner = CliRunner()
 
 
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    ansi_pattern = re.compile(r'\x1b\[[0-9;]*m')
+    return ansi_pattern.sub('', text)
+
+
 class TestConvertCommand:
     def test_convert_help(self):
-        result = runner.invoke(app, ["convert", "--help"], color=False)
+        result = runner.invoke(app, ["convert", "--help"])
         assert result.exit_code == 0
-        assert "--from" in result.output
-        assert "--to" in result.output
+        output = strip_ansi(result.output)
+        assert "--from" in output
+        assert "--to" in output
 
     def test_convert_basic(self, tmp_path):
         payload = [
@@ -39,7 +47,6 @@ class TestConvertCommand:
                 "--to",
                 "alphafold3",
             ],
-            color=False,
         )
         assert result.exit_code == 0
         assert (tmp_path / "output.json").exists()
@@ -47,9 +54,10 @@ class TestConvertCommand:
 
 class TestValidateCommand:
     def test_validate_help(self):
-        result = runner.invoke(app, ["validate", "--help"], color=False)
+        result = runner.invoke(app, ["validate", "--help"])
         assert result.exit_code == 0
-        assert "--dialect" in result.output
+        output = strip_ansi(result.output)
+        assert "--dialect" in output
 
     def test_validate_valid_file(self, tmp_path):
         payload = {
@@ -63,10 +71,11 @@ class TestValidateCommand:
         path.write_text(json.dumps(payload))
 
         result = runner.invoke(
-            app, ["validate", str(path), "--dialect", "alphafold3"], color=False
+            app, ["validate", str(path), "--dialect", "alphafold3"]
         )
         assert result.exit_code == 0
-        assert "passed" in result.output.lower()
+        output = strip_ansi(result.output)
+        assert "passed" in output.lower()
 
     def test_validate_invalid_file(self, tmp_path):
         payload = {
@@ -80,16 +89,17 @@ class TestValidateCommand:
         path.write_text(json.dumps(payload))
 
         result = runner.invoke(
-            app, ["validate", str(path), "--dialect", "alphafold3"], color=False
+            app, ["validate", str(path), "--dialect", "alphafold3"]
         )
         assert result.exit_code == 1
-        assert "failed" in result.output.lower() or "ERROR" in result.output
+        output = strip_ansi(result.output)
+        assert "failed" in output.lower() or "ERROR" in output
 
     def test_validate_nonexistent_file(self, tmp_path):
         path = tmp_path / "nonexistent.json"
 
         result = runner.invoke(
-            app, ["validate", str(path), "--dialect", "alphafold3"], color=False
+            app, ["validate", str(path), "--dialect", "alphafold3"]
         )
         assert result.exit_code == 1
 
@@ -106,14 +116,15 @@ class TestValidateCommand:
 
         # Using -d short option
         result = runner.invoke(
-            app, ["validate", str(path), "-d", "alphafold3"], color=False
+            app, ["validate", str(path), "-d", "alphafold3"]
         )
         assert result.exit_code == 0
 
 
 class TestMainHelp:
     def test_main_help(self):
-        result = runner.invoke(app, ["--help"], color=False)
+        result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "convert" in result.output.lower()
-        assert "validate" in result.output.lower()
+        output = strip_ansi(result.output)
+        assert "convert" in output.lower()
+        assert "validate" in output.lower()
