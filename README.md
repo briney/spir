@@ -31,7 +31,16 @@ pip install -e .
 SPIR provides a CLI for converting between different structure prediction model inputs.
 
 ```bash
-spir convert --from alphafold3server input.json --to alphafold3 output
+spir convert --from alphafold3server input.json --to alphafold3 output_path
+```
+
+> [!NOTE]
+> The `output_path` should only contain the prefix for the output files (no extension). The correct extension will be added automatically.
+
+If your input is Chai-1 formatted and includes restraints, you can specify the restraints file with the `--restraints` option:
+
+```bash
+spir convert --from chai1 input.fasta --to protenix output --restraints restraints.csv
 ```
 
 ## Supported Formats
