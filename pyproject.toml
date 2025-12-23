@@ -1,33 +1,34 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
 
 [project]
 name = "spir"
 version = "0.1.0"
-description = "Standardized IR and converters for structure prediction inputs (AF3, AF3 Server, Boltz, Chai, Protenix)"
+description = "Intermediate representation and converters for protein folding model inputs"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
-authors = [{ name = "Bryan Briney" }]
+license = { text = "MIT" }
 dependencies = [
-  "pydantic>=2.5,<3",
-  "PyYAML>=6.0.1,<7",
-  "click>=8.1.7,<9",
+  "pydantic>=2.7",
+  "PyYAML>=6.0",
+  "typer>=0.20",
 ]
 
-[project.urls]
-Homepage = "https://github.com/bryanbriney/spir"
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
+bio = ["biopython>=1.83"]
 
 [project.scripts]
-spir = "spir.cli:main"
+spir = "spir.cli:app"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[tool.hatch.build.targets.wheel]
+packages = ["src/spir"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["spir*"]
-exclude = []
+[tool.ruff]
+line-length = 100
 
-
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+disallow_untyped_defs = true

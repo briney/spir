@@ -1,108 +1,45 @@
-from __future__ import annotations
+from typing import Optional
 
-from pathlib import Path
-from typing import Optional, Tuple
+import typer
 
-import click
+from spir.convert import ConvertOptions, convert
+from spir.dialects import dialect_help
 
-from .io import read
-from .io import validate as validate_api
-
-
-@click.group()
-def main() -> None:
-    pass
+app = typer.Typer(no_args_is_help=True)
 
 
-@main.command()
-@click.option("--src", "src_paths", multiple=True, required=True, help="Input path(s)")
-@click.option(
-    "--to",
-    "to_format",
-    type=click.Choice(["af3", "af3-server", "boltz", "chai", "protenix"]),
-)
-@click.option(
-    "--out", "out_path", required=False, help="Output file path (or prefix for Chai)"
-)
-def convert(
-    src_paths: Tuple[str, ...], to_format: str, out_path: Optional[str]
+@app.command()
+def convert_cmd(
+    in_path: str = typer.Argument(...),
+    in_dialect: str = typer.Option(
+        ...,
+        "--from",
+        help=f"Input dialect. Supported: {dialect_help()}.",
+    ),
+    out_prefix: str = typer.Argument(
+        ..., help="Output prefix (no extension); the correct extension is added automatically."
+    ),
+    out_dialect: str = typer.Option(
+        ...,
+        "--to",
+        help=(
+            f"Output dialect. Supported: {dialect_help()}. "
+            "Chai outputs <prefix>.fasta and <prefix>.constraints.csv."
+        ),
+    ),
+    restraints: Optional[str] = typer.Option(
+        None,
+        "--restraints",
+        help=(
+            "Optional Chai-1 restraints CSV path (use with --from chai1; "
+            "INPUT_FILE should be FASTA)."
+        ),
+    ),
 ) -> None:
-    ir = read(*src_paths)
-    _dump(ir, to_format, out_path)
+    """Convert between supported dialects."""
+    opts = ConvertOptions()
+    convert(in_path, in_dialect, out_prefix, out_dialect, opts, restraints_path=restraints)
 
 
-def _load(fmt: str, src_paths: Tuple[str, ...]):
-    # Deprecated: handled by read(); kept for backward compatibility if referenced elsewhere
-    ir = read(*src_paths, format=fmt)
-    return ir.ci
-
-
-def _dump(ir, to_format: str, out_path: Optional[str]) -> None:
-    # Compute base directory and optional filename override for CLI semantics
-    if to_format == "chai":
-        # out_path acts as base prefix; default to "out.chai" (no extension)
-        if out_path:
-            base = Path(out_path)
-            directory = base.parent if base.parent != Path("") else Path(".")
-            filename = base.name
-        else:
-            directory = Path(".")
-            filename = "out.chai"
-        fasta_path, restraints_path = ir.write_chai(directory, filename)
-        click.echo(str(fasta_path))
-        if restraints_path is not None:
-            click.echo(str(restraints_path))
-        return
-
-    # Single-file formats: out_path is a full filename when provided
-    if out_path:
-        out_p = Path(out_path)
-        directory = out_p.parent if out_p.parent != Path("") else Path(".")
-        filename = out_p.stem
-    else:
-        directory = Path(".")
-        filename = None
-
-    if to_format == "af3":
-        path = ir.write_alphafold3(directory, filename)
-        click.echo(str(path))
-        return
-    if to_format == "af3-server":
-        path = ir.write_alphafoldserver(directory, filename)
-        click.echo(str(path))
-        return
-    if to_format == "boltz":
-        path = ir.write_boltz(directory, filename)
-        click.echo(str(path))
-        return
-    if to_format == "protenix":
-        path = ir.write_protenix(directory, filename)
-        click.echo(str(path))
-        return
-    raise click.UsageError(f"Unsupported output format: {to_format}")
-
-
-def _write_output(text: str, path: str) -> None:
-    Path(path).write_text(text)
-    click.echo(path)
-
-
-@main.command()
-@click.option("--src", "src_paths", multiple=True, required=True, help="Input path(s)")
-@click.option(
-    "--format",
-    "force_format",
-    type=click.Choice(["af3", "af3-server", "boltz", "chai", "protenix"]),
-    required=False,
-    help="Override auto-detected format",
-)
-@click.option("--explain/--no-explain", default=False, help="Print detailed issues")
-def validate(
-    src_paths: Tuple[str, ...], force_format: Optional[str], explain: bool
-) -> None:
-    """Validate that the given file(s) are correctly formatted."""
-    msg_or_bool = validate_api(*src_paths, format=force_format, explain=True)
-    valid = msg_or_bool == ""
-    click.echo(f"Valid: {'yes' if valid else 'no'}")
-    if explain or not valid:
-        click.echo(f"Issues: {msg_or_bool or '(none)'}")
+if __name__ == "__main__":
+    app()
