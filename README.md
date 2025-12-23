@@ -85,7 +85,7 @@ AlphaFold3 (non-Server) and Boltz-2 support custom MSA paths as part of their re
 SPIR will then add the custom MSA path to the appropriate format for the target output dialect. For example, if you convert to AlphaFold3 (non-Server), the supplied MSA path will be added to the `unpairedMsaPath` field. For Boltz-2, the supplied MSA path will be added to the `msa` field.
 
 > [!NOTE]
-> The unofficial `msa_path` field in AlphaFold3 Server is only supported in input files -- if an AlphaFold3 (non-Server) or Boltz-2 input file containing an MSA path is converted to AlphaFold3 Server format, the MSA path will be ignored.
+> The unofficial `msa_path` field in AlphaFold3 Server is only supported for input files. If an AlphaFold3 (non-Server) or Boltz-2 input file containing an MSA path is converted to AlphaFold3 Server format, the MSA path will be ignored.
 
 
 ## License
