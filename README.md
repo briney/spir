@@ -64,7 +64,7 @@ SPIR supports the following structure prediction models:
 
 ## Custom MSAs
 
-AlphaFold3 (non-Server) and Boltz-2 support custom MSA paths as part of their input format. We anticipate many users will want to convert from the AlphaFold3 Server format to one of the others, as the AlphaFold3 Server format is more user-friendly particularly with respect to glycans. While the `alphafold3server` dialect does not support custom MSAs, we have added the ability to supply custom MSA using the unofficial `msa_path` field for any `proteinChain`, `dnaSequence`, or `rnaSequence` in an AlphaFold3 Server input, like so:
+AlphaFold3 (non-Server) and Boltz-2 support custom MSA paths as part of their respective input formats. We anticipate many users will want to convert from the AlphaFold3 Server format to one of these dialects, since the AlphaFold3 Server format is particularly user-friendly with respect to glycans. While the official [AlphaFold3 Server input format](https://github.com/google-deepmind/alphafold/blob/main/server/README.md) does not support custom MSA paths, SPIR allows users to supply custom MSA using an unofficial `msa_path` field for any `proteinChain`, `dnaSequence`, or `rnaSequence` in an AlphaFold3 Server input, like so:
 
 ```json
 {
@@ -82,7 +82,7 @@ AlphaFold3 (non-Server) and Boltz-2 support custom MSA paths as part of their in
 }
 ```
 
-SPIR will then add the custom MSA path to the appropriate format for the target output dialect. For example, if you convert to AlphaFold3 (non-Server), the MSA path will be added to the `unpairedMsaPath` field. For Boltz-2, the MSA path will be added to the `msa` field.
+SPIR will then add the custom MSA path to the appropriate format for the target output dialect. For example, if you convert to AlphaFold3 (non-Server), the supplied MSA path will be added to the `unpairedMsaPath` field. For Boltz-2, the supplied MSA path will be added to the `msa` field.
 
 > [!NOTE]
 > The unofficial `msa_path` field in AlphaFold3 Server is only supported in input files -- if an AlphaFold3 (non-Server) or Boltz-2 input file containing an MSA path is converted to AlphaFold3 Server format, the MSA path will be ignored.
