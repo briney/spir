@@ -1,0 +1,38 @@
+{
+  "name": "IL-31_with_known_mAb",
+  "modelSeeds": [
+    320665537
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "MHMAPTHQLPPSDVRKIILELQPLSRGLLEDYQKKETGVPESNRTLLLCLTSDSQPPRLNSSAILPYFRAIRPLSDKNIIDKIIEQLDKLKFQHEPETEISVPADTFECKSFILTILQQFSACLESVFKSLNSGPQLEHHHHHH",
+        "modifications": null,
+        "unpairedMsaPath": "/path/to/il31_msa.a3m",
+        "pairedMsa": ""
+      }
+    },
+    {
+      "protein": {
+        "id": "B",
+        "sequence": "EVQLVESGGDLVKPGGSLRLSCVASGFTFSSYVMSWVRQIPEKRLEWVATISSFGSYTYYVDAVKGRFTISRDNAKNTLYLQMNSLRAEDTAIYYCTRQTTMIAWFAYWGQGTLVTVSSASTTAPSVFPLAPSCGSTSGSTVALACLVSGYFPEPVTVSWNSGSLTSGVHTFPSVLQSSGLHSLSSMVTVPSSRWPSETFTCNVVHPASNTKVDKPV",
+        "modifications": null,
+        "unpairedMsaPath": "/path/to/HC_msa.a3m",
+        "pairedMsa": ""
+      }
+    },
+    {
+      "protein": {
+        "id": "C",
+        "sequence": "EIVMTQTHKFMSTSVGDRVNITCKASQDVGAALAWYQQKPGQAPKLLIYWASNRATGVPSRFSGSGSGTDFTFTISSLEPEDVAVYYCQQFSSYHTFGGGTKLEIKRNDAQPAVYLFQPSPDQLHTGSASVVCLLNSFYPKDINVKWKVDGVIQDTGIQESVTEQDKDSTYSLSSTLTMSSTEYLSHELYSCEITHKSLPSTLIKSFQRSECQRVDHHHHHH",
+        "modifications": null,
+        "unpairedMsaPath": "/path/to/LC_msa.a3m",
+        "pairedMsa": ""
+      }
+    }
+  ],
+  "bondedAtomPairs": null,
+  "dialect": "alphafold3",
+  "version": 4
+}
