@@ -1,5 +1,6 @@
 ![](https://img.shields.io/pypi/v/spir.svg?colorB=blue)
 [![tests](https://github.com/briney/spir/actions/workflows/pytest.yaml/badge.svg)](https://github.com/briney/spir/actions/workflows/pytest.yaml)
+![](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpypi.org%2Fpypi%2Fspir%2Fjson&query=%24.info.requires_python&label=python&colorB=blue&logo=python&logoColor=white)
 ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # SPIR
