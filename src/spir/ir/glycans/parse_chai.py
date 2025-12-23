@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import List
 
-from foldir.ir.models import Glycan, GlycanEdge, GlycanNode
+from spir.ir.models import Glycan, GlycanEdge, GlycanNode
 
 CCD_RE = re.compile(r"[A-Za-z0-9]{3}")
 INT_RE = re.compile(r"\d+")

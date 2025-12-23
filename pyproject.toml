@@ -3,7 +3,7 @@ requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [project]
-name = "FoldIR"
+name = "spir"
 version = "0.1.0"
 description = "Intermediate representation and converters for protein folding model inputs"
 readme = "README.md"
@@ -20,10 +20,10 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
 bio = ["biopython>=1.83"]
 
 [project.scripts]
-foldir = "foldir.cli:app"
+spir = "spir.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/foldir"]
+packages = ["src/spir"]
 
 [tool.ruff]
 line-length = 100

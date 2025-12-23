@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from foldir.ir.models import Glycan
+from spir.ir.models import Glycan
 
 
 class LinkageResolver(Protocol):

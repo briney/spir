@@ -1,6 +1,6 @@
 import json
 
-from foldir.convert import ConvertOptions, convert
+from spir.convert import ConvertOptions, convert
 
 
 def test_af3_server_to_af3(tmp_path):

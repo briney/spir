@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from foldir.ir.models import DocumentIR
+from spir.ir.models import DocumentIR
 
 
 class Dialect(Protocol):

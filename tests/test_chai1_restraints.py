@@ -1,4 +1,4 @@
-from foldir.convert import ConvertOptions, convert
+from spir.convert import ConvertOptions, convert
 
 
 def test_chai1_restraints_explicit_path(tmp_path):

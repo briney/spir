@@ -2,8 +2,8 @@ from typing import Optional
 
 import typer
 
-from foldir.convert import ConvertOptions, convert
-from foldir.dialects import dialect_help
+from spir.convert import ConvertOptions, convert
+from spir.dialects import dialect_help
 
 app = typer.Typer(no_args_is_help=True)
 

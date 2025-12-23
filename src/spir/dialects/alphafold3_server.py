@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from foldir.io.json import read_json, write_json
-from foldir.ir.glycans.parse_af3_server import parse_af3_server_glycan_string
-from foldir.ir.glycans.render_af3_server import render_af3_server_glycan_string
-from foldir.ir.models import (
+from spir.io.json import read_json, write_json
+from spir.ir.glycans.parse_af3_server import parse_af3_server_glycan_string
+from spir.ir.glycans.render_af3_server import render_af3_server_glycan_string
+from spir.ir.models import (
     DocumentIR,
     Glycan,
     GlycanAttachment,

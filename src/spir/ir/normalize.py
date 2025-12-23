@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional
 
-from foldir.ir.glycans.resolve_linkages import DefaultSugarLinkageResolver, fill_missing_linkages
-from foldir.ir.ids import ensure_unique_entity_ids, ensure_unique_glycan_ids
-from foldir.ir.models import DocumentIR, Glycan, GlycanAttachment, GlycanNode, JobIR, Ligand, Modification
+from spir.ir.glycans.resolve_linkages import DefaultSugarLinkageResolver, fill_missing_linkages
+from spir.ir.ids import ensure_unique_entity_ids, ensure_unique_glycan_ids
+from spir.ir.models import DocumentIR, Glycan, GlycanAttachment, GlycanNode, JobIR, Ligand, Modification
 
 
 def normalize_ccd(code: str) -> str:

@@ -1,6 +1,6 @@
 ## Design goals
 
-`FoldIR` should give you:
+`Spir` should give you:
 
 1. A **single, explicit Intermediate Representation (IR)** that can losslessly represent the union of:
 
@@ -66,10 +66,10 @@ Input files  ──►│ dialect.parse(...)      │
 ## Suggested package layout (`src/` + `pyproject.toml`)
 
 ```
-FoldIR/
+Spir/
   pyproject.toml
   README.md
-  src/foldir/
+  src/spir/
     __init__.py
     cli.py
     convert.py
@@ -117,7 +117,7 @@ requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [project]
-name = "FoldIR"
+name = "Spir"
 version = "0.1.0"
 description = "Intermediate representation and converters for protein folding model inputs"
 readme = "README.md"
@@ -135,10 +135,10 @@ dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10"]
 bio = ["biopython>=1.83"]
 
 [project.scripts]
-foldir = "foldir.cli:app"
+spir = "spir.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/foldir"]
+packages = ["src/spir"]
 
 [tool.ruff]
 line-length = 100
@@ -153,7 +153,7 @@ disallow_untyped_defs = true
 
 ## Core IR models (Pydantic)
 
-Put this in `src/foldir/ir/models.py`.
+Put this in `src/spir/ir/models.py`.
 
 ```python
 from __future__ import annotations
@@ -302,7 +302,7 @@ class DocumentIR(BaseModel):
 
 ## Normalization layer
 
-Normalization belongs in `src/foldir/ir/normalize.py`. It should:
+Normalization belongs in `src/spir/ir/normalize.py`. It should:
 
 1. Normalize CCD codes:
 
@@ -332,7 +332,7 @@ This is the “hard part” and deserves dedicated modules.
 
 AF3 Server glycan is a rooted tree string like `NAG(NAG)(BMA)` with up to 2 children per node; no linkage positions.  
 
-`src/foldir/ir/glycans/parse_af3_server.py`:
+`src/spir/ir/glycans/parse_af3_server.py`:
 
 ```python
 from __future__ import annotations
@@ -340,7 +340,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 import re
 
-from foldir.ir.models import Glycan, GlycanNode, GlycanEdge
+from spir.ir.models import Glycan, GlycanNode, GlycanEdge
 
 CCD_RE = re.compile(r"[A-Za-z0-9]{3}")
 
@@ -392,14 +392,14 @@ def parse_af3_server_glycan_string(glycan_id: str, s: str) -> Glycan:
 
 Chai encodes linkage positions inline: `NAG(4-1 NAG(4-1 BMA(3-1 MAN)(6-1 MAN)))`.  
 
-`src/foldir/ir/glycans/parse_chai.py`:
+`src/spir/ir/glycans/parse_chai.py`:
 
 ```python
 from __future__ import annotations
 import re
 from typing import List, Optional
 
-from foldir.ir.models import Glycan, GlycanNode, GlycanEdge
+from spir.ir.models import Glycan, GlycanNode, GlycanEdge
 
 CCD_RE = re.compile(r"[A-Za-z0-9]{3}")
 INT_RE = re.compile(r"\d+")
@@ -477,12 +477,12 @@ def parse_chai_glycan_string(glycan_id: str, s: str) -> Glycan:
 
 Renderer must validate AF3 Server limitations: <=2 children per node, <=8 residues, plus root restrictions by residue type if you choose to enforce them. 
 
-`src/foldir/ir/glycans/render_af3_server.py`:
+`src/spir/ir/glycans/render_af3_server.py`:
 
 ```python
 from __future__ import annotations
 from collections import defaultdict
-from foldir.ir.models import Glycan
+from spir.ir.models import Glycan
 
 class RenderError(ValueError):
     pass
@@ -520,12 +520,12 @@ Requires linkage positions. If edges lack `parent_atom/child_atom`, either:
 * error, or
 * fill defaults via a linkage resolver (recommended; see below). 
 
-`src/foldir/ir/glycans/render_chai.py`:
+`src/spir/ir/glycans/render_chai.py`:
 
 ```python
 from __future__ import annotations
 from collections import defaultdict
-from foldir.ir.models import Glycan
+from spir.ir.models import Glycan
 
 class RenderError(ValueError):
     pass
@@ -567,12 +567,12 @@ AF3 Server doesn’t let you specify glycosidic linkage atoms. So if you convert
 
 Do this via a pluggable resolver:
 
-`src/foldir/ir/glycans/resolve_linkages.py`:
+`src/spir/ir/glycans/resolve_linkages.py`:
 
 ```python
 from __future__ import annotations
 from typing import Protocol, Tuple
-from foldir.ir.models import Glycan, GlycanEdge
+from spir.ir.models import Glycan, GlycanEdge
 
 class LinkageResolver(Protocol):
     def resolve(self, parent_ccd: str, child_ccd: str) -> tuple[str, str]:
@@ -618,12 +618,12 @@ This mirrors the fact that AF3 Server chooses linkages heuristically.
 
 ## Dialect adapters
 
-Define a common interface in `src/foldir/dialects/base.py`:
+Define a common interface in `src/spir/dialects/base.py`:
 
 ```python
 from __future__ import annotations
 from typing import Protocol, Any
-from foldir.ir.models import DocumentIR
+from spir.ir.models import DocumentIR
 
 class Dialect(Protocol):
     name: str
@@ -639,11 +639,11 @@ Then implement one module per target.
 * Requires `modelSeeds` non-empty. 
 * Glycans: represent as ligand `ccdCodes:[...]` plus explicit `bondedAtomPairs`.  
 
-Renderer core (sketch) in `src/foldir/dialects/alphafold3.py`:
+Renderer core (sketch) in `src/spir/dialects/alphafold3.py`:
 
 ```python
 import json
-from foldir.ir.models import DocumentIR
+from spir.ir.models import DocumentIR
 
 def render_alphafold3(doc: DocumentIR, out_path: str) -> None:
     if len(doc.jobs) != 1:
@@ -745,7 +745,7 @@ Pseudo-implementation:
 from __future__ import annotations
 from collections import defaultdict, deque
 
-from foldir.ir.models import Glycan, Ligand, LigandReprType, CovalentBond, AtomRef
+from spir.ir.models import Glycan, Ligand, LigandReprType, CovalentBond, AtomRef
 
 def _topo_tree_order(root: str, children_map: dict[str, list[str]]) -> list[str]:
     # deterministic DFS pre-order
@@ -828,14 +828,14 @@ Your Chai renderer should therefore:
 
 ## “Converter” orchestration API
 
-In `src/foldir/convert.py`:
+In `src/spir/convert.py`:
 
 ```python
 from __future__ import annotations
 from dataclasses import dataclass
-from foldir.ir.models import DocumentIR
-from foldir.ir.normalize import normalize_document
-from foldir.dialects import get_dialect
+from spir.ir.models import DocumentIR
+from spir.ir.normalize import normalize_document
+from spir.dialects import get_dialect
 
 @dataclass(frozen=True)
 class ConvertOptions:
@@ -860,11 +860,11 @@ def convert(in_path: str, in_dialect: str, out_path: str, out_dialect: str, opts
 
 ## CLI (Typer)
 
-`src/foldir/cli.py`:
+`src/spir/cli.py`:
 
 ```python
 import typer
-from foldir.convert import convert, ConvertOptions
+from spir.convert import convert, ConvertOptions
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -885,9 +885,9 @@ if __name__ == "__main__":
 Usage:
 
 ```bash
-foldir convert --from alphafoldserver input.json --to alphafold3 output
-foldir convert --from alphafold3 input.json --to boltz2 output
-foldir convert --from chai1 ./case/ --to protenix output
+spir convert --from alphafoldserver input.json --to alphafold3 output
+spir convert --from alphafold3 input.json --to boltz2 output
+spir convert --from chai1 ./case/ --to protenix output
 ```
 
 (For Chai you’ll typically accept a directory containing `*.fasta` + `*.csv`.)
@@ -1019,4 +1019,4 @@ That structure is sufficient to render:
 
 ---
 
-If you implement `DocumentIR` + normalization + five dialect adapters as above, you’ll have a maintainable `FoldIR` codebase that can translate glycans and other covalent connectivity across AlphaFold3 Server, AlphaFold3 (non-server), Chai-1, Boltz-2, and Protenix, while keeping ambiguity and format limitations explicit rather than hidden.
+If you implement `DocumentIR` + normalization + five dialect adapters as above, you’ll have a maintainable `Spir` codebase that can translate glycans and other covalent connectivity across AlphaFold3 Server, AlphaFold3 (non-server), Chai-1, Boltz-2, and Protenix, while keeping ambiguity and format limitations explicit rather than hidden.

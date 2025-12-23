@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-from foldir.dialects import get_dialect
-from foldir.ir.models import DocumentIR
-from foldir.ir.normalize import normalize_document
+from spir.dialects import get_dialect
+from spir.ir.models import DocumentIR
+from spir.ir.normalize import normalize_document
 
 
 @dataclass(frozen=True)

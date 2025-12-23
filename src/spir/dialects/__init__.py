@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Dict
 
-from foldir.dialects.alphafold3 import AlphaFold3Dialect
-from foldir.dialects.alphafold3_server import AlphaFold3ServerDialect
-from foldir.dialects.boltz2 import Boltz2Dialect
-from foldir.dialects.chai1 import Chai1Dialect
-from foldir.dialects.protenix import ProtenixDialect
+from spir.dialects.alphafold3 import AlphaFold3Dialect
+from spir.dialects.alphafold3_server import AlphaFold3ServerDialect
+from spir.dialects.boltz2 import Boltz2Dialect
+from spir.dialects.chai1 import Chai1Dialect
+from spir.dialects.protenix import ProtenixDialect
 
 
 _DIALECTS: Dict[str, object] = {

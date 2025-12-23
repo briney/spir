@@ -3,11 +3,11 @@ from __future__ import annotations
 import os
 from typing import Dict, List, Optional, Tuple
 
-from foldir.io.csv import read_csv, write_csv
-from foldir.io.fasta import read_fasta, write_fasta
-from foldir.ir.glycans.parse_chai import parse_chai_glycan_string
-from foldir.ir.glycans.render_chai import render_chai_glycan_string
-from foldir.ir.models import (
+from spir.io.csv import read_csv, write_csv
+from spir.io.fasta import read_fasta, write_fasta
+from spir.ir.glycans.parse_chai import parse_chai_glycan_string
+from spir.ir.glycans.render_chai import render_chai_glycan_string
+from spir.ir.models import (
     AtomRef,
     ContactConstraint,
     CovalentBond,

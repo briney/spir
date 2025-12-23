@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Tuple
 
-from foldir.io.yaml import read_yaml, write_yaml
-from foldir.ir.models import (
+from spir.io.yaml import read_yaml, write_yaml
+from spir.ir.models import (
     AtomRef,
     ContactConstraint,
     CovalentBond,

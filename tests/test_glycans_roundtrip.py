@@ -1,7 +1,7 @@
-from foldir.ir.glycans.parse_af3_server import parse_af3_server_glycan_string
-from foldir.ir.glycans.parse_chai import parse_chai_glycan_string
-from foldir.ir.glycans.render_af3_server import render_af3_server_glycan_string
-from foldir.ir.glycans.render_chai import render_chai_glycan_string
+from spir.ir.glycans.parse_af3_server import parse_af3_server_glycan_string
+from spir.ir.glycans.parse_chai import parse_chai_glycan_string
+from spir.ir.glycans.render_af3_server import render_af3_server_glycan_string
+from spir.ir.glycans.render_chai import render_chai_glycan_string
 
 
 def test_af3_server_roundtrip():

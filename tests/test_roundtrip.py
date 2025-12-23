@@ -1,7 +1,7 @@
 import json
 import os
 
-from foldir.convert import ConvertOptions, convert
+from spir.convert import ConvertOptions, convert
 
 
 def _extract_af3_server_glycans(payload):

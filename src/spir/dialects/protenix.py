@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, List, Tuple
 
-from foldir.io.json import read_json, write_json
-from foldir.ir.models import (
+from spir.io.json import read_json, write_json
+from spir.ir.models import (
     AtomRef,
     CovalentBond,
     DocumentIR,

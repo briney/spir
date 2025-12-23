@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from foldir.ir.models import Glycan
+from spir.ir.models import Glycan
 
 
 class RenderError(ValueError):
