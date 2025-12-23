@@ -1,5 +1,6 @@
 ![](https://img.shields.io/pypi/v/spir.svg?colorB=blue)
 [![tests](https://github.com/briney/spir/actions/workflows/pytest.yaml/badge.svg)](https://github.com/briney/spir/actions/workflows/pytest.yaml)
+![](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpypi.org%2Fpypi%2Fspir%2Fjson&query=%24.info.requires_python&label=python&colorB=blue&logo=python&logoColor=white)
 ![](https://img.shields.io/badge/license-MIT-blue.svg)
 
 # SPIR
@@ -28,13 +29,12 @@ pip install -e .
 
 ## Usage
 
-SPIR provides a CLI for converting between different structure prediction model inputs.
 
 ```bash
 spir convert --from DIALECT INPUT_FILE --to DIALECT OUTPUT_PREFIX
 ```
 
-For example, to convert an AlphaFold3 Server input to an AlphaFold3 (non-Server) output, you can run:
+As a more concrete example, to convert an AlphaFold3 Server input to an AlphaFold3 (non-Server) output, you can run:
 
 ```bash
 spir convert --from alphafold3server path/to/input.json --to alphafold3 path/to/output
@@ -88,6 +88,15 @@ SPIR will then add the custom MSA path to the appropriate format for the target 
 > The unofficial `msa_path` field in AlphaFold3 Server is only supported for input files. If an AlphaFold3 (non-Server) or Boltz-2 input file containing an MSA path is converted to AlphaFold3 Server format, the MSA path will be ignored.
 
 
+## Format Validation
+
+SPIR also provides a tool for validating inputs against the appropriate format schema:
+
+```bash
+spir validate --dialect DIALECT INPUT_FILE
+```
+
+
 ## License
 
-SPIR is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+SPIR is licensed under the permissive MIT License. Both commercial and non-commercial use are permitted without restriction. See the [LICENSE](LICENSE) file for details.
