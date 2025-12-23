@@ -17,6 +17,7 @@ from spir.ir.models import (
     PolymerChain,
     PolymerType,
 )
+from spir.validate import ValidationResult
 
 
 class AlphaFold3ServerDialect:
@@ -31,6 +32,43 @@ class AlphaFold3ServerDialect:
             raise ValueError("AlphaFold3 Server input must be a list of jobs.")
         jobs = [_parse_job(job) for job in jobs_payload]
         return DocumentIR(jobs=jobs)
+
+    def validate(self, path: str) -> ValidationResult:
+        result = ValidationResult()
+        try:
+            payload = read_json(path)
+        except Exception as e:
+            result.add_error(f"Failed to parse JSON: {e}")
+            return result
+
+        # AF3 Server format is a list of jobs (or dict with "jobs" key)
+        jobs_payload = payload
+        if isinstance(payload, dict) and "jobs" in payload:
+            jobs_payload = payload["jobs"]
+
+        if not isinstance(jobs_payload, list):
+            result.add_error(
+                "AlphaFold3 Server input must be a list of jobs "
+                "(or an object with a 'jobs' array)"
+            )
+            return result
+
+        if len(jobs_payload) == 0:
+            result.add_error("Jobs list cannot be empty")
+            return result
+
+        for job_idx, job in enumerate(jobs_payload):
+            loc = f"jobs[{job_idx}]"
+            _validate_server_job(job, loc, result)
+
+        # Try full parse to catch additional issues
+        if result.is_valid:
+            try:
+                self.parse(path)
+            except Exception as e:
+                result.add_error(f"Validation passed but parsing failed: {e}")
+
+        return result
 
     def render(self, doc: DocumentIR, out_path: str) -> None:
         jobs_payload = [_render_job(job) for job in doc.jobs]
@@ -66,8 +104,7 @@ def _parse_job(payload: dict) -> JobIR:
                         type=PolymerType.protein,
                         sequence=p["sequence"],
                         modifications=[
-                            Modification(position=m["ptmPosition"], ccd=m["ptmType"])
-                            for m in mods
+                            Modification(position=m["ptmPosition"], ccd=m["ptmType"]) for m in mods
                         ],
                         msa_path=msa_path,
                     )
@@ -236,9 +273,7 @@ def _render_job(job: JobIR) -> dict:
     for lig in job.ligands:
         if lig.repr_type.value != "ccd" or not lig.ccd_codes:
             continue
-        sequences.append(
-            {"ligand": {"ligand": _prefix_ccd(lig.ccd_codes[0]), "count": 1}}
-        )
+        sequences.append({"ligand": {"ligand": _prefix_ccd(lig.ccd_codes[0]), "count": 1}})
 
     for ion in job.ions:
         sequences.append({"ion": {"ion": _prefix_ccd(ion.ccd), "count": 1}})
@@ -265,3 +300,96 @@ def _chain_id(idx: int) -> str:
 
 def _prefix_ccd(code: str) -> str:
     return code if code.startswith("CCD_") else f"CCD_{code}"
+
+
+def _validate_server_job(job: dict, loc: str, result: ValidationResult) -> None:
+    """Validate a single AlphaFold Server job."""
+    if not isinstance(job, dict):
+        result.add_error("Job must be an object", loc)
+        return
+
+    # Check sequences
+    sequences = job.get("sequences")
+    if sequences is None:
+        result.add_error("Missing required field 'sequences'", loc)
+    elif not isinstance(sequences, list):
+        result.add_error("'sequences' must be a list", loc)
+    else:
+        for seq_idx, entry in enumerate(sequences):
+            seq_loc = f"{loc}.sequences[{seq_idx}]"
+            _validate_server_sequence_entry(entry, seq_loc, result)
+
+
+def _validate_server_sequence_entry(entry: dict, loc: str, result: ValidationResult) -> None:
+    """Validate a single AlphaFold Server sequence entry."""
+    if not isinstance(entry, dict):
+        result.add_error("Sequence entry must be an object", loc)
+        return
+
+    entry_types = ["proteinChain", "dnaSequence", "rnaSequence", "ligand", "ion"]
+    found_type = None
+    for t in entry_types:
+        if t in entry:
+            found_type = t
+            break
+
+    if found_type is None:
+        result.add_error(f"Sequence entry must contain one of: {', '.join(entry_types)}", loc)
+        return
+
+    data = entry[found_type]
+    if not isinstance(data, dict):
+        result.add_error(f"'{found_type}' must be an object", loc)
+        return
+
+    # Check for required sequence (polymers) or ligand/ion definition
+    if found_type in ("proteinChain", "dnaSequence", "rnaSequence"):
+        sequence = data.get("sequence")
+        if sequence is None:
+            result.add_error(f"Missing required 'sequence' field", f"{loc}.{found_type}")
+        elif not isinstance(sequence, str):
+            result.add_error(f"'sequence' must be a string", f"{loc}.{found_type}")
+        elif len(sequence) == 0:
+            result.add_error(f"'sequence' cannot be empty", f"{loc}.{found_type}")
+
+        # Validate modifications
+        if found_type == "proteinChain":
+            mods = data.get("modifications") or []
+            for mod_idx, mod in enumerate(mods):
+                mod_loc = f"{loc}.{found_type}.modifications[{mod_idx}]"
+                if not isinstance(mod, dict):
+                    result.add_error("Modification must be an object", mod_loc)
+                    continue
+                if mod.get("ptmPosition") is None:
+                    result.add_error("Missing 'ptmPosition'", mod_loc)
+                if mod.get("ptmType") is None:
+                    result.add_error("Missing 'ptmType'", mod_loc)
+
+            # Validate glycans
+            glycans = data.get("glycans") or []
+            for glyc_idx, glyc in enumerate(glycans):
+                glyc_loc = f"{loc}.{found_type}.glycans[{glyc_idx}]"
+                if not isinstance(glyc, dict):
+                    result.add_error("Glycan must be an object", glyc_loc)
+                    continue
+                if glyc.get("residues") is None:
+                    result.add_error("Missing 'residues'", glyc_loc)
+                if glyc.get("position") is None:
+                    result.add_error("Missing 'position'", glyc_loc)
+        else:
+            mods = data.get("modifications") or []
+            for mod_idx, mod in enumerate(mods):
+                mod_loc = f"{loc}.{found_type}.modifications[{mod_idx}]"
+                if not isinstance(mod, dict):
+                    result.add_error("Modification must be an object", mod_loc)
+                    continue
+                if mod.get("basePosition") is None:
+                    result.add_error("Missing 'basePosition'", mod_loc)
+                if mod.get("modificationType") is None:
+                    result.add_error("Missing 'modificationType'", mod_loc)
+    elif found_type == "ligand":
+        if data.get("ligand") is None:
+            result.add_error("Missing 'ligand' CCD code", f"{loc}.{found_type}")
+    elif found_type == "ion":
+        if data.get("ion") is None:
+            result.add_error("Missing 'ion' CCD code", f"{loc}.{found_type}")

@@ -21,6 +21,7 @@ from spir.ir.models import (
     PolymerChain,
     PolymerType,
 )
+from spir.validate import ValidationResult
 
 
 class Chai1Dialect:
@@ -44,6 +45,82 @@ class Chai1Dialect:
         else:
             job = job.model_copy(update={"glycans": glycans})
         return DocumentIR(jobs=[job])
+
+    def validate(self, path: str, restraints_path: Optional[str] = None) -> ValidationResult:
+        result = ValidationResult()
+
+        # Resolve input paths
+        try:
+            fasta_path, restraints_path = _resolve_inputs(path, restraints_path)
+        except ValueError as e:
+            result.add_error(str(e))
+            return result
+
+        # Validate FASTA file
+        try:
+            records = read_fasta(fasta_path)
+        except Exception as e:
+            result.add_error(f"Failed to parse FASTA: {e}")
+            return result
+
+        if not records:
+            result.add_error("FASTA file is empty")
+            return result
+
+        chain_ids = set()
+        valid_types = {"protein", "dna", "rna", "ligand", "glycan"}
+
+        for idx, (header, seq) in enumerate(records):
+            loc = f"record[{idx}]"
+            chain_id = _chain_id(idx + 1)
+
+            if chain_id in chain_ids:
+                result.add_error(f"Duplicate chain ID '{chain_id}'", loc)
+            chain_ids.add(chain_id)
+
+            parts = header.split("|", 1)
+            kind = parts[0].strip().lower()
+
+            if kind not in valid_types:
+                result.add_error(
+                    f"Invalid entity type '{kind}' (expected one of: {', '.join(valid_types)})",
+                    loc,
+                )
+
+            if not seq:
+                result.add_error("Sequence cannot be empty", loc)
+
+        # Validate restraints file if present
+        if restraints_path and os.path.exists(restraints_path):
+            try:
+                rows = read_csv(restraints_path)
+            except Exception as e:
+                result.add_error(f"Failed to parse restraints CSV: {e}")
+                return result
+
+            required_cols = {"chainA", "chainB", "connection_type"}
+            for row_idx, row in enumerate(rows):
+                row_loc = f"restraints[{row_idx}]"
+                for col in required_cols:
+                    if not row.get(col):
+                        result.add_error(f"Missing required column '{col}'", row_loc)
+
+                connection_type = (row.get("connection_type") or "").strip().lower()
+                if connection_type not in ("covalent", "contact", "pocket"):
+                    result.add_error(
+                        f"Invalid connection_type '{connection_type}' "
+                        "(expected: covalent, contact, pocket)",
+                        row_loc,
+                    )
+
+        # Try full parse to catch additional issues
+        if result.is_valid:
+            try:
+                self.parse(path, restraints_path)
+            except Exception as e:
+                result.add_error(f"Validation passed but parsing failed: {e}")
+
+        return result
 
     def render(self, doc: DocumentIR, out_prefix: str) -> None:
         if len(doc.jobs) != 1:

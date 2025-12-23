@@ -20,6 +20,7 @@ from spir.ir.models import (
     PolymerChain,
     PolymerType,
 )
+from spir.validate import ValidationResult
 
 
 class Boltz2Dialect:
@@ -29,6 +30,52 @@ class Boltz2Dialect:
         payload = read_yaml(path)
         job = _parse_job(payload)
         return DocumentIR(jobs=[job])
+
+    def validate(self, path: str) -> ValidationResult:
+        result = ValidationResult()
+        try:
+            payload = read_yaml(path)
+        except Exception as e:
+            result.add_error(f"Failed to parse YAML: {e}")
+            return result
+
+        if not isinstance(payload, dict):
+            result.add_error("Input must be a YAML mapping")
+            return result
+
+        # Check version
+        version = payload.get("version")
+        if version is None:
+            result.add_warning("Missing 'version' field (expected 1)")
+        elif version != 1:
+            result.add_warning(f"Unexpected version {version} (expected 1)")
+
+        # Check sequences
+        sequences = payload.get("sequences")
+        if sequences is None:
+            result.add_error("Missing required field 'sequences'")
+        elif not isinstance(sequences, list):
+            result.add_error("'sequences' must be a list")
+        else:
+            entity_ids = set()
+            for idx, entry in enumerate(sequences):
+                loc = f"sequences[{idx}]"
+                _validate_boltz_sequence_entry(entry, loc, entity_ids, result)
+
+            # Validate constraints (bonds, contacts, pockets)
+            constraints = payload.get("constraints") or []
+            for con_idx, con in enumerate(constraints):
+                loc = f"constraints[{con_idx}]"
+                _validate_boltz_constraint(con, loc, entity_ids, result)
+
+        # Try full parse to catch additional issues
+        if result.is_valid:
+            try:
+                self.parse(path)
+            except Exception as e:
+                result.add_error(f"Validation passed but parsing failed: {e}")
+
+        return result
 
     def render(self, doc: DocumentIR, out_path: str) -> None:
         if len(doc.jobs) != 1:
@@ -459,3 +506,124 @@ def _default_polymer_atom(polymer: PolymerChain, residue_index: int) -> str:
     if residue == "T":
         return "OG1"
     return "ND2"
+
+
+def _validate_boltz_sequence_entry(
+    entry: dict, loc: str, entity_ids: set, result: ValidationResult
+) -> None:
+    """Validate a single Boltz sequence entry and collect entity IDs."""
+    if not isinstance(entry, dict):
+        result.add_error("Sequence entry must be a mapping", loc)
+        return
+
+    entry_types = ["protein", "dna", "rna", "ligand"]
+    found_type = None
+    for t in entry_types:
+        if t in entry:
+            found_type = t
+            break
+
+    if found_type is None:
+        result.add_error(
+            f"Sequence entry must contain one of: {', '.join(entry_types)}", loc
+        )
+        return
+
+    data = entry[found_type]
+    if not isinstance(data, dict):
+        result.add_error(f"'{found_type}' must be a mapping", loc)
+        return
+
+    # Check for required id (can be string or list)
+    entity_id = data.get("id")
+    if entity_id is None:
+        result.add_error(f"Missing required 'id' field", f"{loc}.{found_type}")
+    else:
+        ids_list = entity_id if isinstance(entity_id, list) else [entity_id]
+        for eid in ids_list:
+            if eid in entity_ids:
+                result.add_error(f"Duplicate entity ID '{eid}'", f"{loc}.{found_type}")
+            entity_ids.add(eid)
+
+    # Check for required sequence (polymers) or ligand definition
+    if found_type in ("protein", "dna", "rna"):
+        sequence = data.get("sequence")
+        if sequence is None:
+            result.add_error(f"Missing required 'sequence' field", f"{loc}.{found_type}")
+        elif not isinstance(sequence, str):
+            result.add_error(f"'sequence' must be a string", f"{loc}.{found_type}")
+        elif len(sequence) == 0:
+            result.add_error(f"'sequence' cannot be empty", f"{loc}.{found_type}")
+    else:
+        # Ligand: must have ccd or smiles
+        has_repr = any(k in data for k in ("ccd", "smiles"))
+        if not has_repr:
+            result.add_error(
+                "Ligand must have 'ccd' or 'smiles'",
+                f"{loc}.{found_type}",
+            )
+
+
+def _validate_boltz_constraint(
+    constraint: dict, loc: str, entity_ids: set, result: ValidationResult
+) -> None:
+    """Validate a single Boltz constraint."""
+    if not isinstance(constraint, dict):
+        result.add_error("Constraint must be a mapping", loc)
+        return
+
+    constraint_types = ["bond", "contact", "pocket"]
+    found_type = None
+    for t in constraint_types:
+        if t in constraint:
+            found_type = t
+            break
+
+    if found_type is None:
+        result.add_error(
+            f"Constraint must contain one of: {', '.join(constraint_types)}", loc
+        )
+        return
+
+    data = constraint[found_type]
+    if not isinstance(data, dict):
+        result.add_error(f"'{found_type}' must be a mapping", loc)
+        return
+
+    if found_type == "bond":
+        for atom_key in ("atom1", "atom2"):
+            atom = data.get(atom_key)
+            if atom is None:
+                result.add_error(f"Missing '{atom_key}'", f"{loc}.{found_type}")
+            elif isinstance(atom, list) and len(atom) >= 1:
+                entity_id = atom[0]
+                if entity_id not in entity_ids:
+                    result.add_error(
+                        f"Entity '{entity_id}' not found in sequences",
+                        f"{loc}.{found_type}.{atom_key}",
+                    )
+    elif found_type == "contact":
+        for token_key in ("token1", "token2"):
+            token = data.get(token_key)
+            if token is None:
+                result.add_error(f"Missing '{token_key}'", f"{loc}.{found_type}")
+            elif isinstance(token, list) and len(token) >= 1:
+                entity_id = token[0]
+                if entity_id not in entity_ids:
+                    result.add_error(
+                        f"Entity '{entity_id}' not found in sequences",
+                        f"{loc}.{found_type}.{token_key}",
+                    )
+        if data.get("max_distance") is None:
+            result.add_error("Missing 'max_distance'", f"{loc}.{found_type}")
+    elif found_type == "pocket":
+        binder = data.get("binder")
+        if binder is None:
+            result.add_error("Missing 'binder'", f"{loc}.{found_type}")
+        elif binder not in entity_ids:
+            result.add_error(
+                f"Binder entity '{binder}' not found in sequences",
+                f"{loc}.{found_type}",
+            )
+        if data.get("max_distance") is None:
+            result.add_error("Missing 'max_distance'", f"{loc}.{found_type}")

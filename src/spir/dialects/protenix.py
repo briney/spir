@@ -17,6 +17,7 @@ from spir.ir.models import (
     PolymerChain,
     PolymerType,
 )
+from spir.validate import ValidationResult
 
 
 class ProtenixDialect:
@@ -31,6 +32,43 @@ class ProtenixDialect:
             raise ValueError("Protenix input must be a list of jobs.")
         jobs = [_parse_job(job) for job in jobs_payload]
         return DocumentIR(jobs=jobs)
+
+    def validate(self, path: str) -> ValidationResult:
+        result = ValidationResult()
+        try:
+            payload = read_json(path)
+        except Exception as e:
+            result.add_error(f"Failed to parse JSON: {e}")
+            return result
+
+        # Protenix format is a list of jobs (or dict with "jobs" key)
+        jobs_payload = payload
+        if isinstance(payload, dict) and "jobs" in payload:
+            jobs_payload = payload["jobs"]
+
+        if not isinstance(jobs_payload, list):
+            result.add_error(
+                "Protenix input must be a list of jobs "
+                "(or an object with a 'jobs' array)"
+            )
+            return result
+
+        if len(jobs_payload) == 0:
+            result.add_error("Jobs list cannot be empty")
+            return result
+
+        for job_idx, job in enumerate(jobs_payload):
+            loc = f"jobs[{job_idx}]"
+            _validate_protenix_job(job, loc, result)
+
+        # Try full parse to catch additional issues
+        if result.is_valid:
+            try:
+                self.parse(path)
+            except Exception as e:
+                result.add_error(f"Validation passed but parsing failed: {e}")
+
+        return result
 
     def render(self, doc: DocumentIR, out_path: str) -> None:
         jobs_payload = [_render_job(job) for job in doc.jobs]
@@ -394,3 +432,130 @@ def _default_polymer_atom(polymer: PolymerChain, residue_index: int) -> str:
     if residue == "T":
         return "OG1"
     return "ND2"
+
+
+def _validate_protenix_job(job: dict, loc: str, result: ValidationResult) -> None:
+    """Validate a single Protenix job."""
+    if not isinstance(job, dict):
+        result.add_error("Job must be an object", loc)
+        return
+
+    # Check sequences
+    sequences = job.get("sequences")
+    if sequences is None:
+        result.add_error("Missing required field 'sequences'", loc)
+        return
+    if not isinstance(sequences, list):
+        result.add_error("'sequences' must be a list", loc)
+        return
+
+    entity_count = 0
+    for seq_idx, entry in enumerate(sequences):
+        seq_loc = f"{loc}.sequences[{seq_idx}]"
+        entity_count += 1
+        _validate_protenix_sequence_entry(entry, seq_loc, result)
+
+    # Validate covalent_bonds
+    bonds = job.get("covalent_bonds") or []
+    for bond_idx, bond in enumerate(bonds):
+        bond_loc = f"{loc}.covalent_bonds[{bond_idx}]"
+        _validate_protenix_bond(bond, bond_loc, entity_count, result)
+
+
+def _validate_protenix_sequence_entry(
+    entry: dict, loc: str, result: ValidationResult
+) -> None:
+    """Validate a single Protenix sequence entry."""
+    if not isinstance(entry, dict):
+        result.add_error("Sequence entry must be an object", loc)
+        return
+
+    entry_types = ["proteinChain", "dnaSequence", "rnaSequence", "ligand", "ion"]
+    found_type = None
+    for t in entry_types:
+        if t in entry:
+            found_type = t
+            break
+
+    if found_type is None:
+        result.add_error(
+            f"Sequence entry must contain one of: {', '.join(entry_types)}", loc
+        )
+        return
+
+    data = entry[found_type]
+    if not isinstance(data, dict):
+        result.add_error(f"'{found_type}' must be an object", loc)
+        return
+
+    # Check for required sequence (polymers) or ligand/ion definition
+    if found_type in ("proteinChain", "dnaSequence", "rnaSequence"):
+        sequence = data.get("sequence")
+        if sequence is None:
+            result.add_error(f"Missing required 'sequence' field", f"{loc}.{found_type}")
+        elif not isinstance(sequence, str):
+            result.add_error(f"'sequence' must be a string", f"{loc}.{found_type}")
+        elif len(sequence) == 0:
+            result.add_error(f"'sequence' cannot be empty", f"{loc}.{found_type}")
+
+        # Validate modifications
+        if found_type == "proteinChain":
+            mods = data.get("modifications") or []
+            for mod_idx, mod in enumerate(mods):
+                mod_loc = f"{loc}.{found_type}.modifications[{mod_idx}]"
+                if not isinstance(mod, dict):
+                    result.add_error("Modification must be an object", mod_loc)
+                    continue
+                if mod.get("ptmPosition") is None:
+                    result.add_error("Missing 'ptmPosition'", mod_loc)
+                if mod.get("ptmType") is None:
+                    result.add_error("Missing 'ptmType'", mod_loc)
+        else:
+            mods = data.get("modifications") or []
+            for mod_idx, mod in enumerate(mods):
+                mod_loc = f"{loc}.{found_type}.modifications[{mod_idx}]"
+                if not isinstance(mod, dict):
+                    result.add_error("Modification must be an object", mod_loc)
+                    continue
+                if mod.get("basePosition") is None:
+                    result.add_error("Missing 'basePosition'", mod_loc)
+                if mod.get("modificationType") is None:
+                    result.add_error("Missing 'modificationType'", mod_loc)
+    elif found_type == "ligand":
+        if data.get("ligand") is None:
+            result.add_error("Missing 'ligand' identifier", f"{loc}.{found_type}")
+    elif found_type == "ion":
+        if data.get("ion") is None:
+            result.add_error("Missing 'ion' CCD code", f"{loc}.{found_type}")
+
+
+def _validate_protenix_bond(
+    bond: dict, loc: str, entity_count: int, result: ValidationResult
+) -> None:
+    """Validate a single Protenix covalent bond."""
+    if not isinstance(bond, dict):
+        result.add_error("Bond must be an object", loc)
+        return
+
+    # Check entity references
+    for side in ("1", "2"):
+        entity_key = f"entity{side}"
+        alt_entity_key = f"{'left' if side == '1' else 'right'}_entity"
+        entity = bond.get(entity_key) or bond.get(alt_entity_key)
+        if entity is None:
+            result.add_error(f"Missing entity reference ('{entity_key}')", loc)
+        else:
+            try:
+                entity_num = int(entity)
+                if entity_num < 1 or entity_num > entity_count:
+                    result.add_error(
+                        f"Entity {entity_num} out of range (1-{entity_count})", loc
+                    )
+            except (TypeError, ValueError):
+                result.add_error(f"Entity reference must be an integer", loc)
+
+        pos_key = f"position{side}"
+        alt_pos_key = f"{'left' if side == '1' else 'right'}_position"
+        position = bond.get(pos_key) or bond.get(alt_pos_key)
+        if position is None:
+            result.add_error(f"Missing position ('{pos_key}')", loc)

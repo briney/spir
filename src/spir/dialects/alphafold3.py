@@ -19,6 +19,7 @@ from spir.ir.models import (
     PolymerChain,
     PolymerType,
 )
+from spir.validate import ValidationResult
 
 
 class AlphaFold3Dialect:
@@ -31,6 +32,83 @@ class AlphaFold3Dialect:
         if glycans:
             job = job.model_copy(update={"glycans": glycans})
         return DocumentIR(jobs=[job])
+
+    def validate(self, path: str) -> ValidationResult:
+        result = ValidationResult()
+        try:
+            payload = read_json(path)
+        except Exception as e:
+            result.add_error(f"Failed to parse JSON: {e}")
+            return result
+
+        # Check required fields
+        if not isinstance(payload, dict):
+            result.add_error("Input must be a JSON object")
+            return result
+
+        # Check dialect and version
+        dialect = payload.get("dialect")
+        if dialect is None:
+            result.add_warning("Missing 'dialect' field (expected 'alphafold3')")
+        elif dialect != "alphafold3":
+            result.add_warning(f"Unexpected dialect '{dialect}' (expected 'alphafold3')")
+
+        version = payload.get("version")
+        if version is None:
+            result.add_warning("Missing 'version' field (expected 4)")
+        elif version != 4:
+            result.add_warning(f"Unexpected version {version} (expected 4)")
+
+        # Check modelSeeds
+        seeds = payload.get("modelSeeds")
+        if seeds is None:
+            result.add_error("Missing required field 'modelSeeds'")
+        elif not isinstance(seeds, list):
+            result.add_error("'modelSeeds' must be a list of integers")
+        elif len(seeds) == 0:
+            result.add_error("'modelSeeds' must contain at least one seed")
+
+        # Check sequences
+        sequences = payload.get("sequences")
+        if sequences is None:
+            result.add_error("Missing required field 'sequences'")
+        elif not isinstance(sequences, list):
+            result.add_error("'sequences' must be a list")
+        else:
+            entity_ids = set()
+            for idx, entry in enumerate(sequences):
+                loc = f"sequences[{idx}]"
+                _validate_sequence_entry(entry, loc, entity_ids, result)
+
+            # Validate bondedAtomPairs references
+            bonded_pairs = payload.get("bondedAtomPairs") or []
+            for bond_idx, pair in enumerate(bonded_pairs):
+                loc = f"bondedAtomPairs[{bond_idx}]"
+                if not isinstance(pair, list) or len(pair) != 2:
+                    result.add_error(f"Bond must be a list of two atom references", loc)
+                    continue
+                for atom_idx, atom in enumerate(pair):
+                    if not isinstance(atom, list) or len(atom) != 3:
+                        result.add_error(
+                            f"Atom reference must be [entity_id, position, atom_name]",
+                            f"{loc}[{atom_idx}]",
+                        )
+                        continue
+                    entity_id = atom[0]
+                    if entity_id not in entity_ids:
+                        result.add_error(
+                            f"Entity '{entity_id}' not found in sequences",
+                            f"{loc}[{atom_idx}]",
+                        )
+
+        # Try full parse to catch additional issues
+        if result.is_valid:
+            try:
+                self.parse(path)
+            except Exception as e:
+                result.add_error(f"Validation passed but parsing failed: {e}")
+
+        return result
 
     def render(self, doc: DocumentIR, out_path: str) -> None:
         if len(doc.jobs) != 1:
@@ -351,3 +429,75 @@ def _default_polymer_atom(polymer: PolymerChain, residue_index: int) -> str:
     if residue == "T":
         return "OG1"
     return "ND2"
+
+
+def _validate_sequence_entry(
+    entry: dict, loc: str, entity_ids: set, result: ValidationResult
+) -> None:
+    """Validate a single sequence entry and collect entity IDs."""
+    if not isinstance(entry, dict):
+        result.add_error("Sequence entry must be an object", loc)
+        return
+
+    entry_types = ["protein", "dna", "rna", "ligand"]
+    found_type = None
+    for t in entry_types:
+        if t in entry:
+            found_type = t
+            break
+
+    if found_type is None:
+        result.add_error(
+            f"Sequence entry must contain one of: {', '.join(entry_types)}", loc
+        )
+        return
+
+    data = entry[found_type]
+    if not isinstance(data, dict):
+        result.add_error(f"'{found_type}' must be an object", loc)
+        return
+
+    # Check for required id
+    entity_id = data.get("id")
+    if entity_id is None:
+        result.add_error(f"Missing required 'id' field", f"{loc}.{found_type}")
+    else:
+        if entity_id in entity_ids:
+            result.add_error(f"Duplicate entity ID '{entity_id}'", f"{loc}.{found_type}")
+        entity_ids.add(entity_id)
+
+    # Check for required sequence (polymers) or ligand definition
+    if found_type in ("protein", "dna", "rna"):
+        sequence = data.get("sequence")
+        if sequence is None:
+            result.add_error(f"Missing required 'sequence' field", f"{loc}.{found_type}")
+        elif not isinstance(sequence, str):
+            result.add_error(f"'sequence' must be a string", f"{loc}.{found_type}")
+        elif len(sequence) == 0:
+            result.add_error(f"'sequence' cannot be empty", f"{loc}.{found_type}")
+
+        # Validate modifications
+        mods = data.get("modifications") or []
+        for mod_idx, mod in enumerate(mods):
+            mod_loc = f"{loc}.{found_type}.modifications[{mod_idx}]"
+            if not isinstance(mod, dict):
+                result.add_error("Modification must be an object", mod_loc)
+                continue
+            ptm_pos = mod.get("ptmPosition")
+            if ptm_pos is None:
+                result.add_error("Missing 'ptmPosition'", mod_loc)
+            elif sequence and isinstance(ptm_pos, int) and ptm_pos > len(sequence):
+                result.add_error(
+                    f"ptmPosition {ptm_pos} exceeds sequence length {len(sequence)}",
+                    mod_loc,
+                )
+            if mod.get("ptmType") is None:
+                result.add_error("Missing 'ptmType'", mod_loc)
+    else:
+        # Ligand: must have ccdCodes, smiles, or file
+        has_repr = any(k in data for k in ("ccdCodes", "smiles", "file"))
+        if not has_repr:
+            result.add_error(
+                "Ligand must have 'ccdCodes', 'smiles', or 'file'",
+                f"{loc}.{found_type}",
+            )
