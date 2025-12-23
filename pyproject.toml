@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "spir"
-version = "0.1.0"
+version = "0.2.0"
 description = "Intermediate representation and converters for protein folding model inputs"
 readme = "README.md"
 requires-python = ">=3.10"
