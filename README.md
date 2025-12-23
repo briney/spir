@@ -21,7 +21,7 @@ pip install spir
 If you want to build from source, you can clone the repository and run:
 
 ```bash
-git clone https://github.com/foldir/spir.git
+git clone https://github.com/briney/spir
 cd spir
 pip install -e .
 ```
