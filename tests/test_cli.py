@@ -11,7 +11,7 @@ runner = CliRunner()
 
 class TestConvertCommand:
     def test_convert_help(self):
-        result = runner.invoke(app, ["convert", "--help"])
+        result = runner.invoke(app, ["convert", "--help"], color=False)
         assert result.exit_code == 0
         assert "--from" in result.output
         assert "--to" in result.output
@@ -39,6 +39,7 @@ class TestConvertCommand:
                 "--to",
                 "alphafold3",
             ],
+            color=False,
         )
         assert result.exit_code == 0
         assert (tmp_path / "output.json").exists()
@@ -46,7 +47,7 @@ class TestConvertCommand:
 
 class TestValidateCommand:
     def test_validate_help(self):
-        result = runner.invoke(app, ["validate", "--help"])
+        result = runner.invoke(app, ["validate", "--help"], color=False)
         assert result.exit_code == 0
         assert "--dialect" in result.output
 
@@ -62,7 +63,7 @@ class TestValidateCommand:
         path.write_text(json.dumps(payload))
 
         result = runner.invoke(
-            app, ["validate", str(path), "--dialect", "alphafold3"]
+            app, ["validate", str(path), "--dialect", "alphafold3"], color=False
         )
         assert result.exit_code == 0
         assert "passed" in result.output.lower()
@@ -79,7 +80,7 @@ class TestValidateCommand:
         path.write_text(json.dumps(payload))
 
         result = runner.invoke(
-            app, ["validate", str(path), "--dialect", "alphafold3"]
+            app, ["validate", str(path), "--dialect", "alphafold3"], color=False
         )
         assert result.exit_code == 1
         assert "failed" in result.output.lower() or "ERROR" in result.output
@@ -88,7 +89,7 @@ class TestValidateCommand:
         path = tmp_path / "nonexistent.json"
 
         result = runner.invoke(
-            app, ["validate", str(path), "--dialect", "alphafold3"]
+            app, ["validate", str(path), "--dialect", "alphafold3"], color=False
         )
         assert result.exit_code == 1
 
@@ -104,14 +105,15 @@ class TestValidateCommand:
         path.write_text(json.dumps(payload))
 
         # Using -d short option
-        result = runner.invoke(app, ["validate", str(path), "-d", "alphafold3"])
+        result = runner.invoke(
+            app, ["validate", str(path), "-d", "alphafold3"], color=False
+        )
         assert result.exit_code == 0
 
 
 class TestMainHelp:
     def test_main_help(self):
-        result = runner.invoke(app, ["--help"])
+        result = runner.invoke(app, ["--help"], color=False)
         assert result.exit_code == 0
         assert "convert" in result.output.lower()
         assert "validate" in result.output.lower()
-
