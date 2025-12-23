@@ -53,11 +53,13 @@ spir convert --from chai1 input.fasta --to protenix output --restraints restrain
 
 SPIR supports the following formats:
 
-- AlphaFold3 Server: `alphafold3server`
-- AlphaFold3 (non-Server): `alphafold3`
-- Boltz-2: `boltz2`
-- Chai-1: `chai1`
-- Protenix: `protenix`
+| model | dialect |
+|-------|---------|
+| AlphaFold3 Server | `alphafold3server` |
+| AlphaFold3 (non-Server) | `alphafold3` |
+| Boltz-2 | `boltz2` |
+| Chai-1 | `chai1` |
+| Protenix | `protenix` |
 
 ## License
 
