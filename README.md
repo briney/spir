@@ -49,9 +49,9 @@ If your input is Chai-1 formatted and includes restraints, you can specify the r
 spir convert --from chai1 input.fasta --to protenix output --restraints restraints.csv
 ```
 
-## Supported Formats
+## Supported Models
 
-SPIR supports the following formats:
+SPIR supports the following structure prediction models:
 
 | model | dialect |
 |-------|---------|
