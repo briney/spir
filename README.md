@@ -61,6 +61,33 @@ SPIR supports the following structure prediction models:
 | Chai-1 | `chai1` |
 | Protenix | `protenix` |
 
+
+## Custom MSAs
+
+AlphaFold3 (non-Server) and Boltz-2 support custom MSA paths as part of their respective input formats. We anticipate many users will want to convert from the AlphaFold3 Server format to one of these dialects, since the AlphaFold3 Server format is particularly user-friendly with respect to glycans. While the official [AlphaFold3 Server input format](https://github.com/google-deepmind/alphafold/blob/main/server/README.md) does not support custom MSA paths, SPIR allows users to supply custom MSA using an unofficial `msa_path` field for any `proteinChain`, `dnaSequence`, or `rnaSequence` in an AlphaFold3 Server input, like so:
+
+```json
+{
+  "name": "msa_test",
+  "modelSeeds": [42],
+  "sequences": [
+    {
+      "proteinChain": {
+        "id": "A",
+        "sequence": "MVLSPADKTN",
+        "msa_path": "/path/to/msa/protein_a.a3m"
+      }
+    }
+  ]
+}
+```
+
+SPIR will then add the custom MSA path to the appropriate format for the target output dialect. For example, if you convert to AlphaFold3 (non-Server), the supplied MSA path will be added to the `unpairedMsaPath` field. For Boltz-2, the supplied MSA path will be added to the `msa` field.
+
+> [!NOTE]
+> The unofficial `msa_path` field in AlphaFold3 Server is only supported for input files. If an AlphaFold3 (non-Server) or Boltz-2 input file containing an MSA path is converted to AlphaFold3 Server format, the MSA path will be ignored.
+
+
 ## License
 
 SPIR is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

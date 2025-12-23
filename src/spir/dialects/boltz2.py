@@ -52,6 +52,10 @@ def _parse_job(payload: dict) -> JobIR:
             ids = data.get("id")
             ids_list = ids if isinstance(ids, list) else [ids]
             mods = data.get("modifications") or []
+            msa_path = data.get("msa")
+            # "empty" is a special Boltz keyword meaning no MSA; treat as None
+            if msa_path == "empty":
+                msa_path = None
             for chain_id in ids_list:
                 polymers.append(
                     PolymerChain(
@@ -61,6 +65,7 @@ def _parse_job(payload: dict) -> JobIR:
                         modifications=[
                             Modification(position=m["position"], ccd=m["ccd"]) for m in mods
                         ],
+                        msa_path=msa_path,
                     )
                 )
         elif "dna" in entry:
@@ -165,18 +170,18 @@ def _render_job(job: JobIR) -> dict:
 
     for p in job.polymers:
         key = p.type.value
-        sequences.append(
-            {
-                key: {
-                    "id": p.id,
-                    "sequence": p.sequence,
-                    "modifications": [
-                        {"position": m.position, "ccd": m.ccd} for m in p.modifications
-                    ]
-                    or None,
-                }
-            }
-        )
+        entry = {
+            "id": p.id,
+            "sequence": p.sequence,
+            "modifications": [
+                {"position": m.position, "ccd": m.ccd} for m in p.modifications
+            ]
+            or None,
+        }
+        # Boltz only supports MSA for proteins
+        if p.msa_path and p.type == PolymerType.protein:
+            entry["msa"] = p.msa_path
+        sequences.append({key: entry})
 
     for lig in job.ligands:
         if lig.repr_type.value == "ccd":

@@ -28,6 +28,7 @@ class PolymerChain(BaseModel):
     type: PolymerType
     sequence: str
     modifications: List[Modification] = Field(default_factory=list)
+    msa_path: Optional[str] = None
 
     @model_validator(mode="after")
     def _validate_mod_positions(self) -> "PolymerChain":

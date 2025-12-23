@@ -64,6 +64,7 @@ def _parse_job(payload: dict) -> JobIR:
         if "protein" in entry:
             p = entry["protein"]
             mods = p.get("modifications") or []
+            msa_path = p.get("unpairedMsaPath")
             polymers.append(
                 PolymerChain(
                     id=p["id"],
@@ -72,6 +73,7 @@ def _parse_job(payload: dict) -> JobIR:
                     modifications=[
                         Modification(position=m["ptmPosition"], ccd=m["ptmType"]) for m in mods
                     ],
+                    msa_path=msa_path,
                 )
             )
         elif "dna" in entry:
@@ -81,8 +83,14 @@ def _parse_job(payload: dict) -> JobIR:
             )
         elif "rna" in entry:
             p = entry["rna"]
+            msa_path = p.get("unpairedMsaPath")
             polymers.append(
-                PolymerChain(id=p["id"], type=PolymerType.rna, sequence=p["sequence"])
+                PolymerChain(
+                    id=p["id"],
+                    type=PolymerType.rna,
+                    sequence=p["sequence"],
+                    msa_path=msa_path,
+                )
             )
         elif "ligand" in entry:
             l = entry["ligand"]
@@ -187,19 +195,22 @@ def _render_sequences(job: JobIR) -> List[dict]:
             mods = [
                 {"ptmType": m.ccd, "ptmPosition": m.position} for m in p.modifications
             ]
-            sequences.append(
-                {
-                    "protein": {
-                        "id": p.id,
-                        "sequence": p.sequence,
-                        "modifications": mods or None,
-                    }
-                }
-            )
+            protein_entry = {
+                "id": p.id,
+                "sequence": p.sequence,
+                "modifications": mods or None,
+            }
+            if p.msa_path:
+                protein_entry["unpairedMsaPath"] = p.msa_path
+                protein_entry["pairedMsa"] = ""
+            sequences.append({"protein": protein_entry})
         elif p.type.value == "dna":
             sequences.append({"dna": {"id": p.id, "sequence": p.sequence}})
         elif p.type.value == "rna":
-            sequences.append({"rna": {"id": p.id, "sequence": p.sequence}})
+            rna_entry = {"id": p.id, "sequence": p.sequence}
+            if p.msa_path:
+                rna_entry["unpairedMsaPath"] = p.msa_path
+            sequences.append({"rna": rna_entry})
 
     for lig in job.ligands:
         if lig.repr_type.value == "ccd":

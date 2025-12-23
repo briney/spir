@@ -55,6 +55,8 @@ def _parse_job(payload: dict) -> JobIR:
             count = int(p.get("count", 1))
             mods = p.get("modifications") or []
             glycan_entries = p.get("glycans") or []
+            # Non-standard extension: allow msa_path for conversion to other formats
+            msa_path = p.get("msa_path")
             for _ in range(count):
                 chain_counter += 1
                 chain_id = _chain_id(chain_counter)
@@ -67,6 +69,7 @@ def _parse_job(payload: dict) -> JobIR:
                             Modification(position=m["ptmPosition"], ccd=m["ptmType"])
                             for m in mods
                         ],
+                        msa_path=msa_path,
                     )
                 )
                 for g_idx, g_entry in enumerate(glycan_entries):
@@ -90,6 +93,8 @@ def _parse_job(payload: dict) -> JobIR:
             p = entry["dnaSequence"]
             count = int(p.get("count", 1))
             mods = p.get("modifications") or []
+            # Non-standard extension: allow msa_path for conversion to other formats
+            msa_path = p.get("msa_path")
             for _ in range(count):
                 chain_counter += 1
                 chain_id = _chain_id(chain_counter)
@@ -102,12 +107,15 @@ def _parse_job(payload: dict) -> JobIR:
                             Modification(position=m["basePosition"], ccd=m["modificationType"])
                             for m in mods
                         ],
+                        msa_path=msa_path,
                     )
                 )
         elif "rnaSequence" in entry:
             p = entry["rnaSequence"]
             count = int(p.get("count", 1))
             mods = p.get("modifications") or []
+            # Non-standard extension: allow msa_path for conversion to other formats
+            msa_path = p.get("msa_path")
             for _ in range(count):
                 chain_counter += 1
                 chain_id = _chain_id(chain_counter)
@@ -120,6 +128,7 @@ def _parse_job(payload: dict) -> JobIR:
                             Modification(position=m["basePosition"], ccd=m["modificationType"])
                             for m in mods
                         ],
+                        msa_path=msa_path,
                     )
                 )
         elif "ligand" in entry:
